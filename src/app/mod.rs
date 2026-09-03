@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use crate::config::AppConfig;
+use crate::desktop_integration;
 use crate::export::ExportQueue;
 use crate::image_io::{ImageQueue, SourceImage};
 use crate::loader::ImageLoader;
@@ -96,6 +97,12 @@ impl CropDeckApp {
             startup_errors.push(format!("Settings could not be loaded: {error}"));
             AppConfig::default()
         });
+        let mut startup_notice = None;
+        match desktop_integration::install_for_appimage() {
+            Ok(true) => startup_notice = Some("CropDeck was added to the application menu"),
+            Ok(false) => {}
+            Err(error) => startup_errors.push(format!("Desktop integration failed: {error}")),
+        }
         let ratio = config.aspect_ratio();
         let output_size = config.export().output_size();
         let export_queue = ExportQueue::new(8)
@@ -128,6 +135,9 @@ impl CropDeckApp {
             about_open: false,
             status: None,
         };
+        if let Some(notice) = startup_notice {
+            app.notify(notice);
+        }
         for error in startup_errors {
             app.report_error(error);
         }

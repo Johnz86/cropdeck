@@ -35,7 +35,8 @@ Each tagged release publishes single-file builds with the application icon embed
 | Linux aarch64 | `cropdeck-<version>-linux-aarch64.AppImage` |
 
 A `SHA256SUMS.txt` file accompanies every release. AppImages need the execute bit set before
-launching. Icons and the desktop entry live in `assets/` and are regenerated with
+launching. On first launch the AppImage registers its desktop entry and icons in the user's
+data directory, so CropDeck appears in the application menu and dock with its own icon. Icons and the desktop entry live in `assets/` and are regenerated with
 `python assets/generate_icons.py`.
 
 ## Build and run

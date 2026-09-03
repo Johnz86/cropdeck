@@ -2,11 +2,8 @@
 
 use anyhow::{Context, Result};
 use cropdeck::app::CropDeckApp;
+use cropdeck::desktop_integration::{APP_ID, WINDOW_ICON_PNG};
 use eframe::egui::{IconData, ViewportBuilder};
-
-const APP_ID: &str = "cropdeck";
-const WINDOW_ICON_PNG: &[u8] =
-    include_bytes!("../assets/linux/icons/hicolor/256x256/apps/cropdeck.png");
 
 fn window_icon() -> Result<IconData> {
     eframe::icon_data::from_png_bytes(WINDOW_ICON_PNG)

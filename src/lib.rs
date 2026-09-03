@@ -1,6 +1,7 @@
 pub mod app;
 pub mod config;
 pub mod crop;
+pub mod desktop_integration;
 pub mod export;
 pub mod image_io;
 pub mod loader;
