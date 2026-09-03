@@ -28,8 +28,8 @@ Configuration persistence is in src/config.rs. Source discovery, natural sorting
 the half-resolution display copy are in src/image_io.rs. Background decode scheduling,
 stale-request handling, neighbor prefetch, and decoded-source caching are in src/loader.rs.
 Filename templates and collision resolution are in src/naming.rs. Background encoding and export
-validation are in src/export.rs. aspect_ratio_catalog.json is compiled into the binary and is the
-authoritative source for nominal catalog ratios and tier dimensions.
+validation are in src/export.rs. The ratio catalog and tier sizes are constants in src/presets.rs;
+every preset dimension is derived from a tier's longest side and the ratio, never stored.
 
 ## Runtime flow
 
@@ -85,8 +85,8 @@ runtime dependencies require an explicit product decision.
 
 ## Change boundaries
 
-Geometry changes belong in crop.rs and require focused unit tests. Catalog schema or tier changes
-belong in presets.rs and aspect_ratio_catalog.json and require validation tests for every entry.
+Geometry changes belong in crop.rs and require focused unit tests. Catalog ratio or tier changes
+belong in presets.rs and require tests for the derived dimensions.
 Viewport math belongs in viewport.rs and must be tested independently from egui rendering. File
 discovery, decoding, and the display copy belong in image_io.rs, load scheduling and caching
 belong in loader.rs, naming rules belong in naming.rs, and codec or worker changes belong in

@@ -3,6 +3,8 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
+use crate::presets::PresetDimensions;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceSize {
     width: u32,
@@ -361,39 +363,14 @@ impl CropRect {
 
 #[must_use]
 pub fn common_crop_sizes(ratio: AspectRatio, source: SourceSize) -> Vec<CropSize> {
-    let mut sizes = crate::presets::embedded_catalog().map_or_else(
-        |_error| custom_ratio_sizes(ratio, source),
-        |catalog| {
-            catalog
-                .fitting_dimensions(ratio, source)
-                .into_iter()
-                .map(|dimensions| CropSize::new(dimensions.width(), dimensions.height()))
-                .collect()
-        },
-    );
+    let mut sizes = PresetDimensions::fitting(ratio, source)
+        .map(|dimensions| CropSize::new(dimensions.width(), dimensions.height()))
+        .collect::<Vec<_>>();
     let maximum = CropRect::largest_centered(source, ratio);
     sizes.push(CropSize::new(maximum.width, maximum.height));
     sizes.sort_unstable_by_key(|size| (u64::from(size.width) * u64::from(size.height), size.width));
     sizes.dedup();
     sizes
-}
-
-fn custom_ratio_sizes(ratio: AspectRatio, source: SourceSize) -> Vec<CropSize> {
-    const SHORT_EDGES: [u32; 9] = [256, 384, 512, 768, 832, 1_024, 1_536, 2_048, 4_096];
-
-    SHORT_EDGES
-        .into_iter()
-        .filter_map(|short_edge| {
-            let requested_width = if ratio.width <= ratio.height {
-                short_edge
-            } else {
-                scale_rounded(short_edge, ratio.width, ratio.height)
-            };
-            let height = scale_rounded(requested_width, ratio.height, ratio.width);
-            (requested_width <= source.width && height <= source.height)
-                .then_some(CropSize::new(requested_width, height))
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

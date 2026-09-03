@@ -93,7 +93,7 @@ per-tile cost is already small.
 
 ### Crop size snapping
 
-Crop sizing uses the embedded catalog's ratio specific XS through XXL ladder together with
+Crop sizing uses the built-in catalog's ratio specific XS through XXL ladder together with
 proportional free resizing. The tiers use longest sides of 512, 768, 1024, 1536, 2048, and 2560
 pixels; the derived side is aligned to eight pixels. The largest nominal ratio crop that fits the
 source is appended to every ladder. Custom ratios derive sizes with the same tier rule, keeping the

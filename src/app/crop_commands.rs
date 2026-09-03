@@ -1,5 +1,5 @@
 use crate::crop::{AspectRatio, CropRect, CropResizeDirection, SourceSize};
-use crate::presets::{PresetDimensions, SizeTier, embedded_catalog};
+use crate::presets::{PresetDimensions, SizeTier};
 
 use super::format_bar::FormatAction;
 use super::workspace::ResizeWheelState;
@@ -74,9 +74,8 @@ impl CropDeckApp {
             FormatAction::SetRatio(ratio) => self.apply_ratio(ratio),
             FormatAction::SetTier(tier) => {
                 self.size_preference = CropSizePreference::Tier(tier);
-                if let (Some(source), Ok(catalog)) = (self.source_size(), embedded_catalog())
-                    && let Some(dimensions) =
-                        catalog.dimensions_for(self.config.aspect_ratio(), tier)
+                let dimensions = PresetDimensions::for_ratio(tier, self.config.aspect_ratio());
+                if let Some(source) = self.source_size()
                     && dimensions.fits(source)
                 {
                     self.apply_dimensions(dimensions, source);
@@ -124,15 +123,13 @@ fn preferred_dimensions(
     source: SourceSize,
     target_area: u64,
 ) -> Option<PresetDimensions> {
-    let catalog = embedded_catalog().ok()?;
     match preference {
         CropSizePreference::Automatic => {
-            catalog.nearest_fitting_dimensions(ratio, source, target_area)
+            PresetDimensions::nearest_fitting(ratio, source, target_area)
         }
-        CropSizePreference::Tier(tier) => catalog
-            .dimensions_for(ratio, tier)
+        CropSizePreference::Tier(tier) => Some(PresetDimensions::for_ratio(tier, ratio))
             .filter(|dimensions| dimensions.fits(source))
-            .or_else(|| catalog.fitting_dimensions(ratio, source).last().copied()),
+            .or_else(|| PresetDimensions::fitting(ratio, source).last()),
         CropSizePreference::Maximum => None,
     }
 }
@@ -154,13 +151,9 @@ fn resize_for_ratio(
 }
 
 pub(super) fn matching_tier(ratio: AspectRatio, crop: CropRect) -> Option<SizeTier> {
-    let catalog = embedded_catalog().ok()?;
     SizeTier::ALL.into_iter().find(|tier| {
-        catalog
-            .dimensions_for(ratio, *tier)
-            .is_some_and(|dimensions| {
-                dimensions.width() == crop.width() && dimensions.height() == crop.height()
-            })
+        let dimensions = PresetDimensions::for_ratio(*tier, ratio);
+        dimensions.width() == crop.width() && dimensions.height() == crop.height()
     })
 }
 

@@ -3,7 +3,7 @@ use eframe::egui::{
 };
 
 use crate::crop::AspectRatio;
-use crate::presets::{AspectRatioCatalog, Orientation, SizeTier, embedded_catalog};
+use crate::presets::{AspectRatioCatalog, Orientation, PresetDimensions, SizeTier, catalog};
 
 use super::crop_commands::{crop_area, matching_tier};
 use super::{CropDeckApp, CropSizePreference};
@@ -107,7 +107,7 @@ impl CropDeckApp {
         let ratio = self.config.aspect_ratio();
         let source = self.source_size();
         let crop = self.workspace.crop;
-        let catalog = embedded_catalog().ok();
+        let catalog = catalog();
         let mut action = None;
         let mut custom_width = self.custom_ratio_width;
         let mut custom_height = self.custom_ratio_height;
@@ -120,7 +120,7 @@ impl CropDeckApp {
             {
                 let tile = ratio_tile(
                     ui,
-                    &ratio_display_label(preset),
+                    &preset.to_string(),
                     preset,
                     preset == ratio,
                     Some(index + 1),
@@ -131,14 +131,14 @@ impl CropDeckApp {
                 }
             }
             if ratio_shortcut(ratio).is_none() {
-                ratio_tile(ui, &ratio_display_label(ratio), ratio, true, None, CHIP);
+                ratio_tile(ui, &ratio.to_string(), ratio, true, None, CHIP);
             }
         }
 
         let trigger_label = if density.shows_quick_ratios() {
             String::from("All ratios")
         } else {
-            ratio_display_label(ratio)
+            ratio.to_string()
         };
         let trigger = ui
             .add(bar_button(trigger_label))
@@ -151,18 +151,14 @@ impl CropDeckApp {
                 egui::ScrollArea::vertical()
                     .max_height(maximum_height)
                     .show(ui, |ui| {
-                        if let Some(catalog) = catalog {
-                            for orientation in [
-                                Orientation::Portrait,
-                                Orientation::Landscape,
-                                Orientation::Square,
-                            ] {
-                                if let Some(selected) =
-                                    ratio_section(ui, catalog, orientation, ratio)
-                                {
-                                    action = Some(FormatAction::SetRatio(selected));
-                                    ui.close();
-                                }
+                        for orientation in [
+                            Orientation::Portrait,
+                            Orientation::Landscape,
+                            Orientation::Square,
+                        ] {
+                            if let Some(selected) = ratio_section(ui, catalog, orientation, ratio) {
+                                action = Some(FormatAction::SetRatio(selected));
+                                ui.close();
                             }
                         }
                         if !density.shows_custom_inline() {
@@ -177,8 +173,7 @@ impl CropDeckApp {
             });
 
         ui.separator();
-        let dimensions = SizeTier::ALL
-            .map(|tier| catalog.and_then(|catalog| catalog.dimensions_for(ratio, tier)));
+        let dimensions = SizeTier::ALL.map(|tier| PresetDimensions::for_ratio(tier, ratio));
         let active_tier = crop.and_then(|crop| matching_tier(ratio, crop));
         let segment_count = SizeTier::ALL.len() + 1;
         let radius = ui.visuals().widgets.inactive.corner_radius.nw;
@@ -186,9 +181,7 @@ impl CropDeckApp {
             ui.spacing_mut().item_spacing.x = 0.0;
             for (index, (tier, dimensions)) in SizeTier::ALL.into_iter().zip(dimensions).enumerate()
             {
-                let fits = dimensions
-                    .zip(source)
-                    .is_some_and(|(dimensions, source)| dimensions.fits(source));
+                let fits = source.is_some_and(|source| dimensions.fits(source));
                 let selected = match self.size_preference {
                     CropSizePreference::Tier(preferred) => preferred == tier,
                     CropSizePreference::Automatic => active_tier == Some(tier),
@@ -201,15 +194,12 @@ impl CropDeckApp {
                         .corner_radius(segment_corners(index, segment_count, radius))
                         .selected(selected),
                 );
-                let response = match dimensions {
-                    Some(dimensions) => response.on_hover_text(format!(
-                        "{} x {}  ({:.1} MP)",
-                        dimensions.width(),
-                        dimensions.height(),
-                        dimensions.megapixels()
-                    )),
-                    None => response,
-                };
+                let response = response.on_hover_text(format!(
+                    "{} x {}  ({:.1} MP)",
+                    dimensions.width(),
+                    dimensions.height(),
+                    dimensions.megapixels()
+                ));
                 if !fits {
                     let reason = source.map_or(
                         "Open an image to choose an exact size",
@@ -273,13 +263,6 @@ fn custom_ratio_fields(ui: &mut egui::Ui, width: &mut u32, height: &mut u32) -> 
     [width_response, height_response]
         .iter()
         .any(|response| response.lost_focus() || response.drag_stopped())
-}
-
-fn ratio_display_label(ratio: AspectRatio) -> String {
-    embedded_catalog()
-        .ok()
-        .and_then(|catalog| catalog.ratio(ratio))
-        .map_or_else(|| ratio.to_string(), |preset| preset.label().to_owned())
 }
 
 fn ratio_shortcut(ratio: AspectRatio) -> Option<usize> {
