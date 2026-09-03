@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CropDeck
+Comment=Fast native crop extraction workstation for tall sequential images
+Exec=cropdeck
+Icon=cropdeck
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+Keywords=crop;image;aspect;ratio;
+StartupWMClass=cropdeck

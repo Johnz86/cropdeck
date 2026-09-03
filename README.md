@@ -24,6 +24,20 @@ CropDeck is a desktop application for crop extraction. It keeps crop geometry in
 | Input | JPEG, PNG, WebP |
 | Output | PNG, JPEG, lossy WebP |
 
+## Download
+
+Each tagged release publishes single-file builds with the application icon embedded:
+
+| Platform | Asset |
+| --- | --- |
+| Windows x86_64 | `cropdeck-<version>-windows-x86_64.exe` |
+| Linux x86_64 | `cropdeck-<version>-linux-x86_64.AppImage` |
+| Linux aarch64 | `cropdeck-<version>-linux-aarch64.AppImage` |
+
+A `SHA256SUMS.txt` file accompanies every release. AppImages need the execute bit set before
+launching. Icons and the desktop entry live in `assets/` and are regenerated with
+`python assets/generate_icons.py`.
+
 ## Build and run
 
 CropDeck requires Rust 1.95 or newer. From a repository checkout, run:

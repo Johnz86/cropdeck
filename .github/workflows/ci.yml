@@ -2,15 +2,23 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     name: Quality checks
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -19,21 +27,91 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+      - name: Resolve release version
+        id: version
+        run: |
+          crate_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "v$crate_version" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $crate_version" >&2
+              exit 1
+            fi
+            echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v$crate_version-dev.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
 
-  platform-build:
+  build:
     name: Build (${{ matrix.name }})
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Windows x64
+          - name: Windows x86_64
             os: windows-latest
-          - name: Ubuntu x64
-            os: ubuntu-latest
-          - name: Ubuntu ARM64
-            os: ubuntu-24.04-arm
+            asset: windows-x86_64
+          - name: Linux x86_64
+            os: ubuntu-22.04
+            asset: linux-x86_64
+          - name: Linux aarch64
+            os: ubuntu-22.04-arm
+            asset: linux-aarch64
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.quality.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --locked
+
+      - name: Package Windows executable
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/cropdeck.exe "dist/cropdeck-$VERSION-${{ matrix.asset }}.exe"
+
+      - name: Package Linux AppImage
+        if: runner.os == 'Linux'
+        run: |
+          arch="$(uname -m)"
+          install -Dm755 target/release/cropdeck AppDir/usr/bin/cropdeck
+          install -Dm644 assets/linux/cropdeck.desktop AppDir/usr/share/applications/cropdeck.desktop
+          cp -r assets/linux/icons AppDir/usr/share/
+          ln -s usr/bin/cropdeck AppDir/AppRun
+          ln -s usr/share/applications/cropdeck.desktop AppDir/cropdeck.desktop
+          ln -s usr/share/icons/hicolor/256x256/apps/cropdeck.png AppDir/cropdeck.png
+          ln -s cropdeck.png AppDir/.DirIcon
+          curl -fsSL -o appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$arch.AppImage"
+          chmod +x appimagetool
+          mkdir dist
+          ARCH="$arch" ./appimagetool --appimage-extract-and-run AppDir \
+            "dist/cropdeck-$VERSION-${{ matrix.asset }}.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cropdeck-${{ matrix.asset }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
