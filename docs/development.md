@@ -177,6 +177,12 @@ Clipboard round trip tests use the real system clipboard and therefore replace i
 run wherever a display is available and are skipped on a headless Linux session; CI covers them on
 the Windows runner, which also builds the Windows reveal command.
 
+CI runs once per change: on pull requests, on pushes to master, on version tags, and on manual
+dispatch. Feature branch pushes are covered by their pull request, and the concurrency group is keyed
+by pull request number, so a new push cancels the stale run instead of adding a duplicate. Tests
+that check absolute paths build them from std::env::temp_dir(), because a Unix path such as /tmp is
+relative on Windows.
+
 Run cargo fmt --all after Rust edits. Before handoff or commit, run cargo fmt --all --check,
 cargo build, cargo test --workspace, cargo clippy --workspace --all-targets --all-features --
 -D warnings, and cargo build --release. The workspace flags matter because the application is the
