@@ -28,7 +28,8 @@ CropDeck is a desktop application for crop extraction. It keeps crop geometry in
 
 ## Download
 
-Each tagged release publishes single-file builds with the application icon embedded:
+Each release is published automatically when a new version reaches master, with single-file builds
+that embed the application icon:
 
 | Platform | Asset |
 | --- | --- |

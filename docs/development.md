@@ -177,9 +177,18 @@ Clipboard round trip tests use the real system clipboard and therefore replace i
 run wherever a display is available and are skipped on a headless Linux session; CI covers them on
 the Windows runner, which also builds the Windows reveal command.
 
-CI runs once per change: on pull requests, on pushes to master, on version tags, and on manual
-dispatch. Feature branch pushes are covered by their pull request, and the concurrency group is keyed
-by pull request number, so a new push cancels the stale run instead of adding a duplicate. Tests
+CI runs once per change: on pull requests, on pushes to master, and on manual dispatch. Feature
+branch pushes are covered by their pull request, and the concurrency group is keyed by pull request
+number, so a new push cancels the stale run instead of adding a duplicate. Master runs are never
+cancelled, so a release in progress always completes.
+
+Releases follow the version in Cargo.toml and are never tagged by hand. When a push to master
+carries a cropdeck version whose v tag does not exist yet, the same run builds every platform, then
+creates that tag on the pushed commit and publishes the GitHub Release with the binaries and
+checksums. A tag created by the workflow token starts no further run, so a release never builds
+twice. To release, bump the version in Cargo.toml in the change that should ship. The version is
+read from the cropdeck package by name, because the workspace also contains the unversioned xtask
+crate. Tests
 that check absolute paths build them from std::env::temp_dir(), because a Unix path such as /tmp is
 relative on Windows.
 
