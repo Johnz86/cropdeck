@@ -4,6 +4,7 @@ mod dialogs;
 mod format_bar;
 mod interaction;
 mod panels;
+mod path_field;
 mod shortcuts;
 mod sources;
 mod workspace;
@@ -16,16 +17,28 @@ use eframe::egui;
 use crate::config::AppConfig;
 use crate::desktop_integration;
 use crate::export::ExportQueue;
+use crate::filesystem::{DialogKind, FilesystemService};
 use crate::image_io::{ImageQueue, SourceImage};
 use crate::loader::ImageLoader;
 use crate::presets::SizeTier;
 use crate::viewport::TiledTexture;
 
+use self::capture::CapturePlan;
+use self::panels::RecentExistence;
+use self::path_field::PathField;
 use self::shortcuts::InputFocus;
 use self::workspace::WorkspaceState;
 
 const MEBIBYTE: usize = 1_024 * 1_024;
 const STATUS_LIFETIME: Duration = Duration::from_secs(4);
+const SCAN_MERGE_MINIMUM: usize = 256;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveScan {
+    root: PathBuf,
+    generation: u64,
+    is_folder: bool,
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum CropSizePreference {
@@ -87,6 +100,14 @@ pub struct CropDeckApp {
     pending_exports: usize,
     next_export_index: u64,
     status: Option<StatusMessage>,
+    filesystem: Option<FilesystemService>,
+    scan: Option<ActiveScan>,
+    pending_paths: Vec<PathBuf>,
+    recent_existence: RecentExistence,
+    dialog_in_flight: Option<DialogKind>,
+    capture_plan: Option<CapturePlan>,
+    source_field: PathField,
+    destination_field: PathField,
 }
 
 impl CropDeckApp {
@@ -105,13 +126,19 @@ impl CropDeckApp {
         }
         let ratio = config.aspect_ratio();
         let output_size = config.export().output_size();
-        let export_queue = ExportQueue::new(8)
+        let export_queue = ExportQueue::new(creation_context.egui_ctx.clone())
             .map_err(|error| startup_errors.push(format!("Export worker could not start: {error}")))
             .ok();
         let cache_budget_bytes = config.cache_budget_megabytes() as usize * MEBIBYTE;
         let loader = ImageLoader::new(2, creation_context.egui_ctx.clone(), cache_budget_bytes)
             .map_err(|error| startup_errors.push(format!("Image loader could not start: {error}")))
             .ok();
+        let filesystem = FilesystemService::new(creation_context.egui_ctx.clone())
+            .map_err(|error| {
+                startup_errors.push(format!("Filesystem worker could not start: {error}"));
+            })
+            .ok();
+        let destination_field = PathField::from_committed(config.export().destination());
         let mut app = Self {
             custom_ratio_width: ratio.width(),
             custom_ratio_height: ratio.height(),
@@ -134,6 +161,14 @@ impl CropDeckApp {
             settings_open: false,
             about_open: false,
             status: None,
+            filesystem,
+            scan: None,
+            pending_paths: Vec::new(),
+            recent_existence: RecentExistence::default(),
+            dialog_in_flight: None,
+            capture_plan: None,
+            source_field: PathField::default(),
+            destination_field,
         };
         if let Some(notice) = startup_notice {
             app.notify(notice);
@@ -160,8 +195,9 @@ impl CropDeckApp {
 impl eframe::App for CropDeckApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
+        self.poll_filesystem();
         self.poll_loader(&context);
-        self.poll_exports(&context);
+        self.poll_exports();
         self.toolbar(ui);
         self.status_bar(ui);
         self.workspace(ui);
@@ -183,6 +219,11 @@ impl eframe::App for CropDeckApp {
             && let Err(error) = export_queue.shutdown()
         {
             self.report_error(format!("Export worker could not stop cleanly: {error}"));
+        }
+        if let Some(filesystem) = self.filesystem.take()
+            && let Err(error) = filesystem.shutdown()
+        {
+            self.report_error(format!("Filesystem worker could not stop cleanly: {error}"));
         }
         if let Err(error) = self.config.save() {
             self.report_error(format!("Settings could not be saved: {error}"));

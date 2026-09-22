@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 
-use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
 use image::imageops::{FilterType, resize};
@@ -253,12 +253,6 @@ pub enum ExportError {
 
 #[derive(Debug, Error)]
 pub enum ExportQueueError {
-    #[error("export queue capacity must be greater than zero")]
-    InvalidCapacity,
-
-    #[error("export queue is full")]
-    QueueFull,
-
     #[error("export worker has stopped")]
     WorkerStopped,
 
@@ -287,12 +281,8 @@ struct ExportJob {
 }
 
 impl ExportQueue {
-    pub fn new(capacity: usize) -> Result<Self, ExportQueueError> {
-        if capacity == 0 {
-            return Err(ExportQueueError::InvalidCapacity);
-        }
-
-        let (request_sender, request_receiver) = crossbeam_channel::bounded::<ExportJob>(capacity);
+    pub fn new(repaint: eframe::egui::Context) -> Result<Self, ExportQueueError> {
+        let (request_sender, request_receiver) = crossbeam_channel::unbounded::<ExportJob>();
         let (result_sender, result_receiver) = crossbeam_channel::unbounded();
         let worker = thread::Builder::new()
             .name(String::from("cropdeck-export"))
@@ -308,6 +298,7 @@ impl ExportQueue {
                     if result_sender.send(result).is_err() {
                         break;
                     }
+                    repaint.request_repaint();
                 }
             })
             .map_err(ExportQueueError::SpawnWorker)?;
@@ -320,7 +311,7 @@ impl ExportQueue {
         })
     }
 
-    pub fn try_submit(&self, request: ExportRequest) -> Result<ExportJobId, ExportQueueError> {
+    pub fn submit(&self, request: ExportRequest) -> Result<ExportJobId, ExportQueueError> {
         let id = self
             .next_id
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -333,11 +324,10 @@ impl ExportQueue {
             .as_ref()
             .ok_or(ExportQueueError::WorkerStopped)?;
 
-        match sender.try_send(ExportJob { id, request }) {
-            Ok(()) => Ok(id),
-            Err(TrySendError::Full(_)) => Err(ExportQueueError::QueueFull),
-            Err(TrySendError::Disconnected(_)) => Err(ExportQueueError::WorkerStopped),
-        }
+        sender
+            .send(ExportJob { id, request })
+            .map(|()| id)
+            .map_err(|_send_error| ExportQueueError::WorkerStopped)
     }
 
     pub fn poll_result(&self) -> Result<Option<ExportResult>, ExportQueueError> {
@@ -651,9 +641,10 @@ mod tests {
             destination.clone(),
             options(ExportFormat::Png, None),
         );
-        let queue = ExportQueue::new(1).expect("worker should start");
+        let queue =
+            ExportQueue::new(eframe::egui::Context::default()).expect("worker should start");
 
-        let id = queue.try_submit(request).expect("job should be accepted");
+        let id = queue.submit(request).expect("job should be accepted");
         let deadline = Instant::now() + Duration::from_secs(5);
         let result = loop {
             if let Some(result) = queue.poll_result().expect("worker should remain available") {
@@ -670,10 +661,41 @@ mod tests {
     }
 
     #[test]
-    fn queue_rejects_zero_capacity() {
-        assert!(matches!(
-            ExportQueue::new(0),
-            Err(ExportQueueError::InvalidCapacity)
-        ));
+    fn queue_accepts_more_jobs_than_the_old_bounded_capacity() {
+        let (directory, source) = source_fixture();
+        let queue =
+            ExportQueue::new(eframe::egui::Context::default()).expect("worker should start");
+        let job_count = 16;
+
+        for index in 0..job_count {
+            let destination = directory.path().join(format!("queued_{index:02}.png"));
+            let request = ExportRequest::new(
+                source.clone(),
+                crop_fixture(),
+                destination,
+                options(ExportFormat::Png, None),
+            );
+            queue
+                .submit(request)
+                .expect("an unbounded queue should accept every job");
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut receipts = 0;
+        while receipts < job_count {
+            if queue
+                .poll_result()
+                .expect("worker should remain available")
+                .is_some()
+            {
+                receipts += 1;
+                continue;
+            }
+            assert!(Instant::now() < deadline, "worker results timed out");
+            std::thread::yield_now();
+        }
+
+        assert_eq!(receipts, job_count);
+        queue.shutdown().expect("worker should stop cleanly");
     }
 }

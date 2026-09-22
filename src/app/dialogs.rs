@@ -1,10 +1,15 @@
+use std::time::Instant;
+
 use eframe::egui;
 
 use crate::config::ExportFormat;
+use crate::filesystem::DialogKind;
 
 use super::CropDeckApp;
+use super::path_field::{PathField, PathFieldState};
 
-const DIALOG_WIDTH: f32 = 400.0;
+const DIALOG_WIDTH: f32 = 460.0;
+const PATH_BUTTON_AREA: f32 = 210.0;
 
 fn dialog_footer(ui: &mut egui::Ui) -> bool {
     ui.separator();
@@ -150,20 +155,96 @@ impl CropDeckApp {
         if let Some(error) = &self.filename_template_error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
-        ui.horizontal(|ui| {
-            let destination = self.config.export().destination().map_or_else(
-                || String::from("Source folder"),
-                |path| path.display().to_string(),
-            );
-            ui.add(egui::Label::new(destination).truncate());
-            if ui.button("Choose destination").clicked()
-                && let Some(path) = rfd::FileDialog::new().pick_folder()
-            {
-                self.config.export_mut().set_destination(Some(path));
-            }
-            if ui.button("Use source folder").clicked() {
-                self.config.export_mut().set_destination(None);
-            }
-        });
+        ui.separator();
+        self.source_row(ui);
+        ui.add_space(6.0);
+        self.destination_row(ui);
     }
+
+    fn source_row(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Source");
+        let mut open_image = false;
+        let mut open_folder = false;
+        ui.horizontal(|ui| {
+            let response = path_edit(ui, &mut self.source_field, "Paste a folder or image path");
+            if response.changed() {
+                self.source_field.mark_edited(Instant::now());
+            }
+            if response.lost_focus() {
+                self.source_field.request_commit();
+            }
+            let idle = self.dialog_in_flight.is_none();
+            open_image = ui
+                .add_enabled(idle, egui::Button::new("Image..."))
+                .on_hover_text("Choose a single image")
+                .clicked();
+            open_folder = ui
+                .add_enabled(idle, egui::Button::new("Folder..."))
+                .on_hover_text("Choose a folder of images")
+                .clicked();
+        });
+        path_status(ui, &self.source_field.state());
+        if open_image {
+            self.open_dialog(DialogKind::SourceImage);
+        }
+        if open_folder {
+            self.open_dialog(DialogKind::SourceFolder);
+        }
+    }
+
+    fn destination_row(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Destination");
+        let mut choose = false;
+        let mut use_source = false;
+        ui.horizontal(|ui| {
+            let response = path_edit(
+                ui,
+                &mut self.destination_field,
+                "Paste an export folder path",
+            );
+            if response.changed() {
+                self.destination_field.mark_edited(Instant::now());
+            }
+            if response.lost_focus() {
+                self.destination_field.request_commit();
+            }
+            choose = ui
+                .add_enabled(
+                    self.dialog_in_flight.is_none(),
+                    egui::Button::new("Choose destination"),
+                )
+                .clicked();
+            use_source = ui
+                .button("Use source folder")
+                .on_hover_text("Export beside each source image")
+                .clicked();
+        });
+        path_status(ui, &self.destination_field.state());
+        if choose {
+            self.open_dialog(DialogKind::ExportDestination);
+        }
+        if use_source {
+            self.destination_field.set_committed(None);
+            self.config.export_mut().set_destination(None);
+            self.capture_plan = None;
+        }
+    }
+}
+
+fn path_edit(ui: &mut egui::Ui, field: &mut PathField, hint: &str) -> egui::Response {
+    let width = (ui.available_width() - PATH_BUTTON_AREA).max(120.0);
+    ui.add(
+        egui::TextEdit::singleline(field.draft_mut())
+            .desired_width(width)
+            .hint_text(hint),
+    )
+}
+
+fn path_status(ui: &mut egui::Ui, state: &PathFieldState) {
+    let color = if state.is_rejected() {
+        ui.visuals().error_fg_color
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    ui.colored_label(color, state.note());
 }

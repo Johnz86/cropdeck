@@ -1,6 +1,3 @@
-//! Registers a running AppImage with the freedesktop application menu so the launcher, dock,
-//! and window manager show CropDeck with its own name and icon.
-
 use std::borrow::Cow;
 use std::env;
 use std::fs;
@@ -10,9 +7,8 @@ use std::path::{Path, PathBuf};
 use directories::BaseDirs;
 use thiserror::Error;
 
-/// Desktop application identifier shared by the window, the desktop entry, and the icons.
 pub const APP_ID: &str = "cropdeck";
-/// PNG bytes used for the runtime window icon.
+
 pub const WINDOW_ICON_PNG: &[u8] =
     include_bytes!("../assets/linux/icons/hicolor/256x256/apps/cropdeck.png");
 
@@ -56,10 +52,6 @@ pub enum DesktopIntegrationError {
     },
 }
 
-/// Installs the desktop entry and icons for the AppImage that launched this process.
-///
-/// Returns `Ok(false)` when the process is not running from an AppImage or when every file is
-/// already current, and `Ok(true)` when any file was written.
 pub fn install_for_appimage() -> Result<bool, DesktopIntegrationError> {
     let Some(executable) = env::var_os(APPIMAGE_ENV).map(PathBuf::from) else {
         return Ok(false);
@@ -68,9 +60,6 @@ pub fn install_for_appimage() -> Result<bool, DesktopIntegrationError> {
     install(base_dirs.data_local_dir(), &executable)
 }
 
-/// Installs the desktop entry and icons under `data_dir`, pointing the entry at `executable`.
-///
-/// Returns whether any file changed.
 pub fn install(data_dir: &Path, executable: &Path) -> Result<bool, DesktopIntegrationError> {
     let icon_root = data_dir.join("icons").join("hicolor");
     let mut changed = false;

@@ -199,7 +199,7 @@ impl RecentSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     export: ExportSettings,
@@ -209,8 +209,19 @@ pub struct AppConfig {
     cache_budget_megabytes: u32,
     recent_sources: Vec<RecentSource>,
 
-    #[serde(skip_serializing)]
-    last_source: Option<PathBuf>,
+    #[serde(skip)]
+    revision: u64,
+}
+
+impl PartialEq for AppConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.export == other.export
+            && self.aspect_ratio == other.aspect_ratio
+            && self.recursive_scan == other.recursive_scan
+            && self.capture_advance_percent == other.capture_advance_percent
+            && self.cache_budget_megabytes == other.cache_budget_megabytes
+            && self.recent_sources == other.recent_sources
+    }
 }
 
 impl AppConfig {
@@ -220,7 +231,13 @@ impl AppConfig {
     }
 
     pub fn export_mut(&mut self) -> &mut ExportSettings {
+        self.revision = self.revision.wrapping_add(1);
         &mut self.export
+    }
+
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
     }
 
     #[must_use]
@@ -229,6 +246,7 @@ impl AppConfig {
     }
 
     pub fn set_aspect_ratio(&mut self, aspect_ratio: AspectRatio) {
+        self.revision = self.revision.wrapping_add(1);
         self.aspect_ratio = aspect_ratio;
     }
 
@@ -288,16 +306,13 @@ impl AppConfig {
         self.recent_sources.clear();
     }
 
-    fn migrate_last_source(&mut self) {
-        if let Some(path) = self.last_source.take()
-            && self.recent_sources.is_empty()
+    pub fn set_recent_image_count(&mut self, path: &Path, image_count: usize) {
+        if let Some(entry) = self
+            .recent_sources
+            .iter_mut()
+            .find(|entry| entry.path == path && entry.kind == SourceKind::Folder)
         {
-            let source = if path.is_dir() {
-                RecentSource::folder(path, 0)
-            } else {
-                RecentSource::image(path)
-            };
-            self.recent_sources.push(source);
+            entry.image_count = Some(image_count);
         }
     }
 
@@ -327,14 +342,13 @@ impl AppConfig {
             path: path.to_owned(),
             source,
         })?;
-        let mut config: Self = serde_json::from_reader(BufReader::new(file)).map_err(|source| {
+        let config: Self = serde_json::from_reader(BufReader::new(file)).map_err(|source| {
             ConfigError::Deserialize {
                 path: path.to_owned(),
                 source,
             }
         })?;
         config.validate()?;
-        config.migrate_last_source();
         Ok(config)
     }
 
@@ -377,7 +391,7 @@ impl Default for AppConfig {
             capture_advance_percent: 85,
             cache_budget_megabytes: 1_024,
             recent_sources: Vec::new(),
-            last_source: None,
+            revision: 0,
         }
     }
 }
@@ -654,21 +668,53 @@ mod tests {
     }
 
     #[test]
-    fn legacy_last_source_seeds_the_recent_list_once() {
+    fn the_revision_advances_on_export_and_ratio_mutations() {
+        let mut config = AppConfig::default();
+        let start = config.revision();
+
+        config.export_mut().set_format(ExportFormat::Png);
+        let after_export = config.revision();
+        config.set_aspect_ratio(AspectRatio::new(1, 1).expect("fixture ratio should be valid"));
+
+        assert!(after_export > start);
+        assert!(config.revision() > after_export);
+    }
+
+    #[test]
+    fn a_loaded_config_starts_at_revision_zero() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
         let path = directory.path().join("settings.json");
-        fs::write(&path, r#"{"last_source":"chapter_12.webp"}"#)
-            .expect("test config should be written");
-
-        let config = AppConfig::load_from(&path).expect("config should load");
-
-        assert_eq!(
-            config.recent_sources(),
-            &[RecentSource::image(PathBuf::from("chapter_12.webp"))]
-        );
+        let mut config = AppConfig::default();
+        config.export_mut().set_format(ExportFormat::Png);
         config.save_to(&path).expect("config should save");
-        let saved = fs::read_to_string(&path).expect("config should be readable");
-        assert!(!saved.contains("last_source"));
+
+        let loaded = AppConfig::load_from(&path).expect("config should load");
+
+        assert_eq!(loaded.revision(), 0);
+        assert_eq!(loaded, config);
+    }
+
+    #[test]
+    fn recent_image_counts_update_only_folder_entries() {
+        let mut config = AppConfig::default();
+        config.push_recent_source(RecentSource::image(PathBuf::from("page1.webp")));
+        config.push_recent_source(RecentSource::folder(PathBuf::from("chapter"), 0));
+
+        config.set_recent_image_count(Path::new("chapter"), 218);
+        config.set_recent_image_count(Path::new("page1.webp"), 9);
+
+        let folder = config
+            .recent_sources()
+            .iter()
+            .find(|entry| entry.path() == Path::new("chapter"))
+            .expect("folder entry should exist");
+        let image = config
+            .recent_sources()
+            .iter()
+            .find(|entry| entry.path() == Path::new("page1.webp"))
+            .expect("image entry should exist");
+        assert_eq!(folder.image_count(), Some(218));
+        assert_eq!(image.image_count(), None);
     }
 
     #[test]

@@ -1,33 +1,79 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use eframe::egui;
-
-use crate::export::{ExportOptions, ExportRequest};
+use crate::export::{ExportError, ExportOptions, ExportRequest};
 use crate::naming::{FilenameContext, FilenameTemplate, OutputDimensions};
 
 use super::workspace::HistoryEntry;
 use super::{CropDeckApp, display_file_name};
 
+#[derive(Debug)]
+pub(super) struct CapturePlan {
+    revision: u64,
+    source: PathBuf,
+    options: ExportOptions,
+    template: FilenameTemplate,
+    destination: PathBuf,
+}
+
+fn plan_is_current(plan: &CapturePlan, revision: u64, source: &Path) -> bool {
+    plan.revision == revision && plan.source == source
+}
+
 impl CropDeckApp {
+    fn build_capture_plan(&self, source: &Path) -> Result<CapturePlan, String> {
+        let options = ExportOptions::from_settings(self.config.export())
+            .map_err(|error| format!("Invalid export settings: {error}"))?;
+        let template = FilenameTemplate::parse(self.config.export().filename_template())
+            .map_err(|error| format!("Invalid filename template: {error}"))?;
+        let destination = self
+            .config
+            .export()
+            .destination()
+            .map(Path::to_owned)
+            .or_else(|| source.parent().map(Path::to_owned))
+            .unwrap_or_else(|| PathBuf::from("."));
+        fs::create_dir_all(&destination).map_err(|error| {
+            format!(
+                "Could not create destination {}: {error}",
+                destination.display()
+            )
+        })?;
+
+        Ok(CapturePlan {
+            revision: self.config.revision(),
+            source: source.to_path_buf(),
+            options,
+            template,
+            destination,
+        })
+    }
+
     pub(super) fn capture_and_advance(&mut self) {
         let (Some(crop), Some(source)) = (self.workspace.crop, self.source_size()) else {
             return;
         };
-        let Some(source_image) = self.source.as_ref() else {
+        let Some(source_path) = self.source.as_ref().map(|image| image.path().to_path_buf()) else {
             return;
         };
-        let Some(export_queue) = self.export_queue.as_ref() else {
+        if self.export_queue.is_none() {
             self.report_error(String::from("Export worker is unavailable"));
             return;
-        };
-        let options = match ExportOptions::from_settings(self.config.export()) {
-            Ok(options) => options,
-            Err(error) => {
-                self.report_error(format!("Invalid export settings: {error}"));
-                return;
-            }
+        }
+        let revision = self.config.revision();
+        let reusable = self
+            .capture_plan
+            .take()
+            .filter(|plan| plan_is_current(plan, revision, &source_path));
+        let plan = match reusable {
+            Some(plan) => plan,
+            None => match self.build_capture_plan(&source_path) {
+                Ok(plan) => plan,
+                Err(message) => {
+                    self.report_error(message);
+                    return;
+                }
+            },
         };
         let (output_width, output_height) = self
             .config
@@ -41,15 +87,8 @@ impl CropDeckApp {
                 return;
             }
         };
-        let template = match FilenameTemplate::parse(self.config.export().filename_template()) {
-            Ok(template) => template,
-            Err(error) => {
-                self.report_error(format!("Invalid filename template: {error}"));
-                return;
-            }
-        };
         let filename_context = match FilenameContext::from_source_path(
-            source_image.path(),
+            &source_path,
             self.next_export_index,
             self.config.aspect_ratio(),
             dimensions,
@@ -60,22 +99,8 @@ impl CropDeckApp {
                 return;
             }
         };
-        let destination_directory = self
-            .config
-            .export()
-            .destination()
-            .map(Path::to_owned)
-            .or_else(|| source_image.path().parent().map(Path::to_owned))
-            .unwrap_or_else(|| PathBuf::from("."));
-        if let Err(error) = fs::create_dir_all(&destination_directory) {
-            self.report_error(format!(
-                "Could not create destination {}: {error}",
-                destination_directory.display()
-            ));
-            return;
-        }
-        let resolved = match template.resolve_available(
-            &destination_directory,
+        let resolved = match plan.template.resolve_available(
+            &plan.destination,
             self.config.export().format().extension(),
             &filename_context,
         ) {
@@ -86,11 +111,28 @@ impl CropDeckApp {
             }
         };
         let index = resolved.index();
-        let request = ExportRequest::new(source_image.clone(), crop, resolved.into_path(), options);
-        if let Err(error) = export_queue.try_submit(request) {
-            self.report_error(format!("Could not queue crop: {error}"));
+        let Some(source_image) = self.source.as_ref() else {
             return;
+        };
+        let request = ExportRequest::new(
+            source_image.clone(),
+            crop,
+            resolved.into_path(),
+            plan.options,
+        );
+        let submitted = self
+            .export_queue
+            .as_ref()
+            .map(|queue| queue.submit(request));
+        match submitted {
+            Some(Ok(_job_id)) => {}
+            Some(Err(error)) => {
+                self.report_error(format!("Could not queue crop: {error}"));
+                return;
+            }
+            None => return,
         }
+        self.capture_plan = Some(plan);
         self.next_export_index = index.saturating_add(1);
         self.pending_exports += 1;
         self.workspace.history.push(HistoryEntry { crop, index });
@@ -101,7 +143,7 @@ impl CropDeckApp {
         self.notify(format!("Crop {index:03} queued for export"));
     }
 
-    pub(super) fn poll_exports(&mut self, context: &egui::Context) {
+    pub(super) fn poll_exports(&mut self) {
         let Some(queue) = self.export_queue.as_ref() else {
             return;
         };
@@ -126,14 +168,64 @@ impl CropDeckApp {
                     receipt.width(),
                     receipt.height()
                 )),
-                Err(error) => self.report_error(format!("Export failed: {error}")),
+                Err(error) => {
+                    if matches!(
+                        error,
+                        ExportError::CreateDestination { .. }
+                            | ExportError::WriteDestination { .. }
+                    ) {
+                        self.capture_plan = None;
+                    }
+                    self.report_error(format!("Export failed: {error}"));
+                }
             }
         }
         if let Some(error) = worker_error {
             self.report_error(error);
         }
-        if self.pending_exports > 0 {
-            context.request_repaint_after(Duration::from_millis(50));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::ExportFormat;
+    use crate::export::{ExportQuality, OutputSize};
+
+    use super::*;
+
+    fn plan(revision: u64, source: &str) -> CapturePlan {
+        CapturePlan {
+            revision,
+            source: PathBuf::from(source),
+            options: ExportOptions::new(
+                ExportFormat::WebP,
+                ExportQuality::new(85).expect("fixture quality should be valid"),
+                OutputSize::new(512, 512).ok(),
+            ),
+            template: FilenameTemplate::parse("{source}_{index:03}")
+                .expect("fixture template should parse"),
+            destination: PathBuf::from("/exports"),
         }
+    }
+
+    #[test]
+    fn a_plan_is_reused_while_the_revision_and_source_match() {
+        let plan = plan(7, "/comics/page1.webp");
+
+        assert!(plan_is_current(&plan, 7, Path::new("/comics/page1.webp")));
+    }
+
+    #[test]
+    fn a_plan_is_discarded_when_the_revision_advances() {
+        let plan = plan(7, "/comics/page1.webp");
+
+        assert!(!plan_is_current(&plan, 8, Path::new("/comics/page1.webp")));
+    }
+
+    #[test]
+    fn a_plan_is_discarded_when_the_source_changes() {
+        let plan = plan(7, "/comics/page1.webp");
+
+        assert!(!plan_is_current(&plan, 7, Path::new("/comics/page2.webp")));
     }
 }

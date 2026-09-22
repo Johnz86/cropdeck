@@ -3,6 +3,7 @@ pub mod config;
 pub mod crop;
 pub mod desktop_integration;
 pub mod export;
+pub mod filesystem;
 pub mod image_io;
 pub mod loader;
 pub mod naming;

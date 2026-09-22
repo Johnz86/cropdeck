@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::VecDeque;
 use std::fs;
 use std::io::Cursor;
 use std::ops::Range;
@@ -222,36 +223,61 @@ pub struct ImageQueue {
 }
 
 impl ImageQueue {
-    pub fn from_folder(folder: &Path, depth: ScanDepth) -> Result<Self, ImageIoError> {
-        let paths = discover_images(folder, depth)?;
+    #[must_use]
+    pub fn from_batch(paths: Vec<PathBuf>) -> Option<Self> {
         if paths.is_empty() {
-            return Err(ImageIoError::NoSupportedImages(folder.to_path_buf()));
+            return None;
         }
 
-        Ok(Self {
+        Some(Self {
             paths,
             current_index: 0,
         })
     }
 
-    pub fn from_paths<I>(paths: I) -> Result<Self, ImageIoError>
-    where
-        I: IntoIterator<Item = PathBuf>,
-    {
-        let mut paths: Vec<_> = paths
-            .into_iter()
-            .filter(|path| is_supported_image(path))
-            .collect();
-        sort_paths_naturally(&mut paths);
-
-        if paths.is_empty() {
-            return Err(ImageIoError::EmptyQueue);
+    pub fn merge_sorted(&mut self, batch: &[PathBuf]) -> usize {
+        if batch.is_empty() {
+            return 0;
         }
 
-        Ok(Self {
-            paths,
-            current_index: 0,
-        })
+        let existing_paths = std::mem::take(&mut self.paths);
+        let mut merged = Vec::with_capacity(existing_paths.len() + batch.len());
+        let mut existing = existing_paths.into_iter().peekable();
+        let mut taken = 0;
+        let mut incoming = 0;
+        let mut shift = 0;
+        let mut inserted = 0;
+        while incoming < batch.len() {
+            let Some(next_existing) = existing.peek() else {
+                break;
+            };
+            let ordering = compare_naturally(next_existing, &batch[incoming]);
+            match ordering {
+                Ordering::Greater => {
+                    if taken <= self.current_index {
+                        shift += 1;
+                    }
+                    merged.push(batch[incoming].clone());
+                    incoming += 1;
+                    inserted += 1;
+                }
+                Ordering::Less | Ordering::Equal => {
+                    if let Some(path) = existing.next() {
+                        merged.push(path);
+                        taken += 1;
+                    }
+                    if ordering == Ordering::Equal {
+                        incoming += 1;
+                    }
+                }
+            }
+        }
+        merged.extend(existing);
+        merged.extend(batch[incoming..].iter().cloned());
+        inserted += batch.len() - incoming;
+        self.current_index += shift;
+        self.paths = merged;
+        inserted
     }
 
     #[must_use]
@@ -361,15 +387,25 @@ pub fn is_supported_image(path: &Path) -> bool {
         })
 }
 
-pub fn discover_images(folder: &Path, depth: ScanDepth) -> Result<Vec<PathBuf>, ImageIoError> {
-    let mut pending_directories = vec![folder.to_path_buf()];
-    let mut paths = Vec::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanControl {
+    Continue,
+    Cancel,
+}
 
-    while let Some(directory) = pending_directories.pop() {
+pub fn scan_images<F>(root: &Path, depth: ScanDepth, emit: &mut F) -> Result<(), ImageIoError>
+where
+    F: FnMut(Vec<PathBuf>) -> ScanControl,
+{
+    let mut pending_directories = VecDeque::from([root.to_path_buf()]);
+
+    while let Some(directory) = pending_directories.pop_front() {
         let entries = fs::read_dir(&directory).map_err(|source| ImageIoError::ReadDirectory {
             path: directory.clone(),
             source,
         })?;
+        let mut images = Vec::new();
+        let mut subdirectories = Vec::new();
 
         for entry in entries {
             let entry = entry.map_err(|source| ImageIoError::ReadDirectory {
@@ -385,15 +421,21 @@ pub fn discover_images(folder: &Path, depth: ScanDepth) -> Result<Vec<PathBuf>, 
                 })?;
 
             if file_type.is_file() && is_supported_image(&path) {
-                paths.push(path);
+                images.push(path);
             } else if depth == ScanDepth::Recursive && file_type.is_dir() {
-                pending_directories.push(path);
+                subdirectories.push(path);
             }
         }
+
+        sort_paths_naturally(&mut images);
+        sort_paths_naturally(&mut subdirectories);
+        if !images.is_empty() && emit(images) == ScanControl::Cancel {
+            return Ok(());
+        }
+        pending_directories.extend(subdirectories);
     }
 
-    sort_paths_naturally(&mut paths);
-    Ok(paths)
+    Ok(())
 }
 
 pub fn decode_image(path: &Path) -> Result<SourceImage, ImageIoError> {
@@ -437,18 +479,20 @@ fn decode_webp(path: &Path, bytes: &[u8]) -> Result<SourcePixels, ImageIoError> 
     }
 }
 
-fn sort_paths_naturally(paths: &mut [PathBuf]) {
-    paths.sort_by(|left, right| {
-        let ordering = natord::compare_ignore_case(
-            left.to_string_lossy().as_ref(),
-            right.to_string_lossy().as_ref(),
-        );
-        if ordering == Ordering::Equal {
-            left.cmp(right)
-        } else {
-            ordering
-        }
-    });
+fn compare_naturally(left: &Path, right: &Path) -> Ordering {
+    let ordering = natord::compare_ignore_case(
+        left.to_string_lossy().as_ref(),
+        right.to_string_lossy().as_ref(),
+    );
+    if ordering == Ordering::Equal {
+        left.cmp(right)
+    } else {
+        ordering
+    }
+}
+
+pub fn sort_paths_naturally(paths: &mut [PathBuf]) {
+    paths.sort_by(|left, right| compare_naturally(left, right));
 }
 
 #[cfg(test)]
@@ -469,51 +513,168 @@ mod tests {
         assert!(!is_supported_image(Path::new("source")));
     }
 
+    fn collect_batches(root: &Path, depth: ScanDepth) -> Vec<Vec<PathBuf>> {
+        let mut batches = Vec::new();
+        scan_images(root, depth, &mut |batch| {
+            batches.push(batch);
+            ScanControl::Continue
+        })
+        .expect("scan should succeed");
+        batches
+    }
+
+    fn file_names(paths: &[PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .collect()
+    }
+
+    fn queue_of(names: &[&str]) -> ImageQueue {
+        ImageQueue::from_batch(names.iter().map(PathBuf::from).collect())
+            .expect("fixture batch should form a queue")
+    }
+
+    fn batch_of(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(PathBuf::from).collect()
+    }
+
     #[test]
-    fn discovery_filters_and_naturally_sorts_paths() {
+    fn scan_filters_unsupported_files_and_sorts_each_batch_naturally() {
         let directory = tempdir().expect("temporary directory should be created");
         for name in ["page10.png", "page2.webp", "page1.jpg", "notes.txt"] {
             fs::write(directory.path().join(name), []).expect("fixture should be written");
         }
 
-        let paths = discover_images(directory.path(), ScanDepth::FolderOnly)
-            .expect("image discovery should succeed");
-        let names: Vec<_> = paths
-            .iter()
-            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
-            .collect();
+        let batches = collect_batches(directory.path(), ScanDepth::FolderOnly);
 
-        assert_eq!(names, ["page1.jpg", "page2.webp", "page10.png"]);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(
+            file_names(&batches[0]),
+            ["page1.jpg", "page2.webp", "page10.png"]
+        );
     }
 
     #[test]
-    fn recursive_discovery_includes_nested_images() {
+    fn recursive_scan_emits_the_root_batch_before_nested_batches() {
         let directory = tempdir().expect("temporary directory should be created");
         let nested = directory.path().join("chapter2");
         fs::create_dir(&nested).expect("nested fixture directory should be created");
         fs::write(directory.path().join("page1.png"), []).expect("fixture should be written");
         fs::write(nested.join("page2.png"), []).expect("fixture should be written");
 
-        let shallow = discover_images(directory.path(), ScanDepth::FolderOnly)
-            .expect("shallow discovery should succeed");
-        let recursive = discover_images(directory.path(), ScanDepth::Recursive)
-            .expect("recursive discovery should succeed");
+        let shallow = collect_batches(directory.path(), ScanDepth::FolderOnly);
+        let recursive = collect_batches(directory.path(), ScanDepth::Recursive);
 
-        assert_eq!(shallow.len(), 1);
+        assert_eq!(file_names(&shallow.concat()), ["page1.png"]);
         assert_eq!(recursive.len(), 2);
+        assert_eq!(file_names(&recursive[0]), ["page1.png"]);
+        assert_eq!(file_names(&recursive[1]), ["page2.png"]);
+    }
+
+    #[test]
+    fn scan_stops_when_the_sink_cancels() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let nested = directory.path().join("chapter2");
+        fs::create_dir(&nested).expect("nested fixture directory should be created");
+        fs::write(directory.path().join("page1.png"), []).expect("fixture should be written");
+        fs::write(nested.join("page2.png"), []).expect("fixture should be written");
+        let mut batches = 0;
+
+        scan_images(directory.path(), ScanDepth::Recursive, &mut |_batch| {
+            batches += 1;
+            ScanControl::Cancel
+        })
+        .expect("cancelled scan should not fail");
+
+        assert_eq!(batches, 1);
+    }
+
+    #[test]
+    fn empty_batches_do_not_form_a_queue() {
+        assert!(ImageQueue::from_batch(Vec::new()).is_none());
     }
 
     #[test]
     fn queue_navigation_stops_at_each_boundary() {
-        let mut queue =
-            ImageQueue::from_paths([PathBuf::from("page10.png"), PathBuf::from("page2.png")])
-                .expect("supported paths should form a queue");
+        let mut queue = queue_of(&["page2.png", "page10.png"]);
 
         assert_eq!(queue.current(), Path::new("page2.png"));
         assert_eq!(queue.move_previous(), None);
         assert_eq!(queue.move_next(), Some(Path::new("page10.png")));
         assert_eq!(queue.move_next(), None);
         assert_eq!(queue.current_index(), 1);
+    }
+
+    #[test]
+    fn merging_earlier_paths_keeps_the_current_path() {
+        let mut queue = queue_of(&["b.png", "d.png"]);
+        queue.move_next();
+        assert_eq!(queue.current(), Path::new("d.png"));
+
+        let inserted = queue.merge_sorted(&batch_of(&["a.png", "c.png"]));
+
+        assert_eq!(inserted, 2);
+        assert_eq!(
+            file_names(queue.paths()),
+            ["a.png", "b.png", "c.png", "d.png"]
+        );
+        assert_eq!(queue.current_index(), 3);
+        assert_eq!(queue.current(), Path::new("d.png"));
+    }
+
+    #[test]
+    fn merging_later_paths_leaves_the_index_untouched() {
+        let mut queue = queue_of(&["a.png", "b.png"]);
+
+        let inserted = queue.merge_sorted(&batch_of(&["c.png", "d.png"]));
+
+        assert_eq!(inserted, 2);
+        assert_eq!(queue.current_index(), 0);
+        assert_eq!(queue.len(), 4);
+        assert_eq!(queue.current(), Path::new("a.png"));
+    }
+
+    #[test]
+    fn merging_duplicate_paths_neither_grows_nor_shifts() {
+        let mut queue = queue_of(&["a.png", "b.png"]);
+        queue.move_next();
+
+        let inserted = queue.merge_sorted(&batch_of(&["a.png", "b.png"]));
+
+        assert_eq!(inserted, 0);
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.current_index(), 1);
+        assert_eq!(queue.current(), Path::new("b.png"));
+    }
+
+    #[test]
+    fn merging_preserves_natural_order_across_batches() {
+        let mut queue = queue_of(&["page1.png"]);
+
+        queue.merge_sorted(&batch_of(&["page10.png"]));
+        queue.merge_sorted(&batch_of(&["page2.png"]));
+
+        assert_eq!(
+            file_names(queue.paths()),
+            ["page1.png", "page2.png", "page10.png"]
+        );
+        assert_eq!(queue.current(), Path::new("page1.png"));
+    }
+
+    #[test]
+    fn merging_around_the_current_path_shifts_only_for_earlier_entries() {
+        let mut queue = queue_of(&["b.png", "d.png"]);
+        queue.move_next();
+
+        let inserted = queue.merge_sorted(&batch_of(&["a.png", "e.png"]));
+
+        assert_eq!(inserted, 2);
+        assert_eq!(queue.current_index(), 2);
+        assert_eq!(queue.current(), Path::new("d.png"));
     }
 
     #[test]

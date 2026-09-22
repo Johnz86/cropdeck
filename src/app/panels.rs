@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, FontId, text::LayoutJob};
@@ -10,6 +11,62 @@ use super::workspace::{ZOOM_FACTOR, ZoomMode};
 use super::{CropDeckApp, StatusLevel, StatusMessage, display_file_name};
 
 const RECENT_ENTRY_WIDTH: f32 = 360.0;
+const RECENT_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecentAvailability {
+    #[default]
+    Unknown,
+    Present,
+    Missing,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct RecentExistence {
+    states: HashMap<PathBuf, bool>,
+    last_refresh: Option<Instant>,
+    visible: bool,
+}
+
+impl RecentExistence {
+    pub(super) fn availability(&self, path: &Path) -> RecentAvailability {
+        match self.states.get(path) {
+            None => RecentAvailability::Unknown,
+            Some(true) => RecentAvailability::Present,
+            Some(false) => RecentAvailability::Missing,
+        }
+    }
+
+    pub(super) fn record(&mut self, path: PathBuf, exists: bool) {
+        self.states.insert(path, exists);
+    }
+
+    pub(super) fn forget(&mut self, path: &Path) {
+        self.states.remove(path);
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.states.clear();
+    }
+
+    pub(super) fn mark_visible(&mut self) {
+        self.visible = true;
+    }
+
+    pub(super) fn take_due(&mut self, now: Instant) -> bool {
+        if !std::mem::take(&mut self.visible) {
+            return false;
+        }
+        if self
+            .last_refresh
+            .is_some_and(|last| now.duration_since(last) < RECENT_PROBE_INTERVAL)
+        {
+            return false;
+        }
+        self.last_refresh = Some(now);
+        true
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum SourceAction {
@@ -58,13 +115,16 @@ impl CropDeckApp {
             SourceAction::OpenFolder => self.open_folder_dialog(),
             SourceAction::OpenRecent(path) => self.open_source(path),
             SourceAction::ForgetRecent(path) => self.forget_recent_source(&path),
-            SourceAction::ClearRecent => self.config.clear_recent_sources(),
+            SourceAction::ClearRecent => {
+                self.config.clear_recent_sources();
+                self.recent_existence.clear();
+            }
             SourceAction::Settings => self.settings_open = true,
             SourceAction::About => self.about_open = true,
         }
     }
 
-    fn file_menu(&self, ui: &mut egui::Ui) -> Option<SourceAction> {
+    fn file_menu(&mut self, ui: &mut egui::Ui) -> Option<SourceAction> {
         let mut action = None;
         let trigger = file_tile(ui).on_hover_text("Open sources, settings, and about");
         egui::Popup::menu(&trigger).show(|ui| {
@@ -102,8 +162,9 @@ impl CropDeckApp {
         action
     }
 
-    fn recent_menu(&self, ui: &mut egui::Ui) -> Option<SourceAction> {
+    fn recent_menu(&mut self, ui: &mut egui::Ui) -> Option<SourceAction> {
         ui.set_min_width(RECENT_ENTRY_WIDTH);
+        self.recent_existence.mark_visible();
         let recent = self.config.recent_sources();
         if recent.is_empty() {
             ui.add_enabled(false, egui::Button::new("No recent sources"));
@@ -111,7 +172,10 @@ impl CropDeckApp {
         }
         let mut action = None;
         for entry in recent {
-            if let Some(entry_action) = recent_entry_button(ui, entry, RECENT_ENTRY_WIDTH) {
+            let availability = self.recent_existence.availability(entry.path());
+            if let Some(entry_action) =
+                recent_entry_button(ui, entry, availability, RECENT_ENTRY_WIDTH)
+            {
                 action = Some(entry_action);
             }
         }
@@ -204,6 +268,11 @@ impl CropDeckApp {
                         }
                         ui.separator();
                     }
+                    if let Some(scan) = self.scan.as_ref() {
+                        ui.add(egui::Spinner::new().size(12.0));
+                        ui.weak(format!("scanning {}", display_file_name(&scan.root)));
+                        ui.separator();
+                    }
                     if self.pending_exports > 0 {
                         ui.weak(format!("exporting {}", self.pending_exports));
                         ui.separator();
@@ -223,30 +292,54 @@ impl CropDeckApp {
     }
 }
 
+pub(super) fn recent_entry_detail(
+    availability: RecentAvailability,
+    kind: SourceKind,
+    image_count: Option<usize>,
+    parent: String,
+) -> String {
+    match (availability, kind, image_count) {
+        (RecentAvailability::Missing, SourceKind::Folder | SourceKind::Image, _) => {
+            format!("{parent} · not found")
+        }
+        (
+            RecentAvailability::Unknown | RecentAvailability::Present,
+            SourceKind::Folder,
+            Some(count),
+        ) if count > 0 => format!("{parent} · {count} images"),
+        (
+            RecentAvailability::Unknown | RecentAvailability::Present,
+            SourceKind::Folder,
+            Some(_) | None,
+        ) => format!("{parent} · folder"),
+        (RecentAvailability::Unknown | RecentAvailability::Present, SourceKind::Image, _) => parent,
+    }
+}
+
+pub(super) fn recent_entry_action(availability: RecentAvailability, path: PathBuf) -> SourceAction {
+    match availability {
+        RecentAvailability::Missing => SourceAction::ForgetRecent(path),
+        RecentAvailability::Unknown | RecentAvailability::Present => SourceAction::OpenRecent(path),
+    }
+}
+
 pub(super) fn recent_entry_button(
     ui: &mut egui::Ui,
     entry: &RecentSource,
+    availability: RecentAvailability,
     width: f32,
 ) -> Option<SourceAction> {
-    let exists = entry.path().exists();
     let parent = entry
         .path()
         .parent()
         .map(|parent| parent.display().to_string())
         .unwrap_or_default();
-    let detail = match (exists, entry.kind(), entry.image_count()) {
-        (false, _, _) => format!("{parent} · not found"),
-        (true, SourceKind::Folder, Some(count)) if count > 0 => {
-            format!("{parent} · {count} images")
-        }
-        (true, SourceKind::Folder, _) => format!("{parent} · folder"),
-        (true, SourceKind::Image, _) => parent,
-    };
+    let detail = recent_entry_detail(availability, entry.kind(), entry.image_count(), parent);
     let visuals = ui.visuals();
-    let name_color = if exists {
-        visuals.text_color()
-    } else {
+    let name_color = if availability == RecentAvailability::Missing {
         visuals.weak_text_color()
+    } else {
+        visuals.text_color()
     };
     let mut text = LayoutJob::default();
     text.wrap.max_width = width;
@@ -272,10 +365,103 @@ pub(super) fn recent_entry_button(
     if !response.clicked() {
         return None;
     }
-    let path = entry.path().to_owned();
-    Some(if exists {
-        SourceAction::OpenRecent(path)
-    } else {
-        SourceAction::ForgetRecent(path)
-    })
+    Some(recent_entry_action(availability, entry.path().to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parent() -> String {
+        String::from("/comics")
+    }
+
+    #[test]
+    fn an_unprobed_entry_renders_and_acts_as_present() {
+        let unknown = recent_entry_detail(
+            RecentAvailability::Unknown,
+            SourceKind::Folder,
+            Some(12),
+            parent(),
+        );
+        let present = recent_entry_detail(
+            RecentAvailability::Present,
+            SourceKind::Folder,
+            Some(12),
+            parent(),
+        );
+
+        assert_eq!(unknown, present);
+        assert_eq!(
+            recent_entry_action(RecentAvailability::Unknown, PathBuf::from("/comics/ch1")),
+            SourceAction::OpenRecent(PathBuf::from("/comics/ch1"))
+        );
+    }
+
+    #[test]
+    fn a_missing_entry_reports_not_found_and_offers_forget() {
+        assert_eq!(
+            recent_entry_detail(
+                RecentAvailability::Missing,
+                SourceKind::Folder,
+                Some(12),
+                parent()
+            ),
+            "/comics · not found"
+        );
+        assert_eq!(
+            recent_entry_action(RecentAvailability::Missing, PathBuf::from("/comics/ch1")),
+            SourceAction::ForgetRecent(PathBuf::from("/comics/ch1"))
+        );
+    }
+
+    #[test]
+    fn a_folder_without_a_usable_count_falls_back_to_a_plain_label() {
+        assert_eq!(
+            recent_entry_detail(
+                RecentAvailability::Present,
+                SourceKind::Folder,
+                Some(0),
+                parent()
+            ),
+            "/comics · folder"
+        );
+        assert_eq!(
+            recent_entry_detail(
+                RecentAvailability::Present,
+                SourceKind::Folder,
+                None,
+                parent()
+            ),
+            "/comics · folder"
+        );
+    }
+
+    #[test]
+    fn existence_refreshes_only_when_visible_and_due() {
+        let mut existence = RecentExistence::default();
+        let now = Instant::now();
+
+        assert!(!existence.take_due(now));
+        existence.mark_visible();
+        assert!(existence.take_due(now));
+        existence.mark_visible();
+        assert!(!existence.take_due(now + Duration::from_secs(1)));
+        existence.mark_visible();
+        assert!(existence.take_due(now + RECENT_PROBE_INTERVAL));
+    }
+
+    #[test]
+    fn recorded_paths_report_their_availability_and_can_be_forgotten() {
+        let mut existence = RecentExistence::default();
+        let path = PathBuf::from("/comics/ch1");
+
+        assert_eq!(existence.availability(&path), RecentAvailability::Unknown);
+        existence.record(path.clone(), true);
+        assert_eq!(existence.availability(&path), RecentAvailability::Present);
+        existence.record(path.clone(), false);
+        assert_eq!(existence.availability(&path), RecentAvailability::Missing);
+        existence.forget(&path);
+        assert_eq!(existence.availability(&path), RecentAvailability::Unknown);
+    }
 }

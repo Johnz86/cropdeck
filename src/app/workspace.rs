@@ -1,11 +1,13 @@
+use std::time::Instant;
+
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 use crate::crop::{AspectRatio, CropRect, SourceSize};
 use crate::viewport::{SourceRect, ViewportTransform};
 
-use super::CropDeckApp;
 use super::interaction::{CropDrag, WorkspaceInteraction, interact_with_workspace};
 use super::panels::{SourceAction, recent_entry_button};
+use super::{CropDeckApp, display_file_name};
 
 const LAUNCHER_BUTTON_SIZE: Vec2 = Vec2::new(300.0, 30.0);
 const MINIMUM_ZOOM: f32 = 0.05;
@@ -176,13 +178,38 @@ impl CropDeckApp {
                     action = Some(candidate);
                 }
             }
+            if let Some(scan) = self.scan.as_ref() {
+                ui.add_space(20.0);
+                ui.add(egui::Spinner::new());
+                ui.weak(format!("Scanning {}", display_file_name(&scan.root)));
+                return;
+            }
+            ui.add_space(10.0);
+            let paste = ui.add_sized(
+                egui::Vec2::new(LAUNCHER_BUTTON_SIZE.x, LAUNCHER_BUTTON_SIZE.y * 0.6),
+                egui::TextEdit::singleline(self.source_field.draft_mut())
+                    .hint_text("or paste a folder or image path"),
+            );
+            if paste.changed() {
+                self.source_field.mark_edited(Instant::now());
+            }
+            if paste.lost_focus() {
+                self.source_field.request_commit();
+            }
+            let state = self.source_field.state();
+            if state.is_rejected() {
+                let error_color = ui.visuals().error_fg_color;
+                ui.colored_label(error_color, state.note());
+            }
+            self.recent_existence.mark_visible();
             let recent = self.config.recent_sources();
             if !recent.is_empty() {
                 ui.add_space(20.0);
                 ui.label(egui::RichText::new("Recent").small().strong());
                 for entry in recent {
+                    let availability = self.recent_existence.availability(entry.path());
                     if let Some(entry_action) =
-                        recent_entry_button(ui, entry, LAUNCHER_BUTTON_SIZE.x)
+                        recent_entry_button(ui, entry, availability, LAUNCHER_BUTTON_SIZE.x)
                     {
                         action = Some(entry_action);
                     }
