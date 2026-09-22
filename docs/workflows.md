@@ -27,10 +27,17 @@ Source pixel coordinates, deterministic naming templates, and non overwriting ou
 
 1. Open one supported image or a folder of images.
 2. Click a quick ratio chip, pick any catalog ratio from All ratios, or type a custom ratio.
-3. Choose a size tier on the rail or Max for the largest crop that fits the source.
-4. Position the crop with the pointer or keyboard.
+3. Choose a size tier on the footer rail or Max for the largest crop that fits the source.
+4. Position the crop with the pointer or keyboard, or double-click x or y in the footer to type an
+   exact source pixel position. Enter applies it, Esc cancels, and text that is not a whole number
+   is rejected with an error. A position past an edge is clamped so the crop stays inside the
+   image, and the footer says so.
 5. Press Space or Enter to export and advance by the configured amount.
-6. Continue through the source or move to the next image in the queue.
+6. Continue through the source or move to the next image in the queue. The chain button next to
+   the footer position locks the crop: while it is linked, the next image keeps the current
+   position and size. When the rectangle does not fit, it slides back inside the image, and if the
+   image is smaller than the crop it shrinks at the same ratio; the load message reports the
+   adjustment.
 
 Folder queues use natural filename ordering and can include nested folders when recursive scanning is enabled. Queue navigation appears only when more than one image is loaded. The File menu and the empty workspace both list the ten most recently opened images and folders; entries that no longer exist are marked and can be removed by clicking them.
 
@@ -79,7 +86,7 @@ A nominal 2:3 XS preset is 344 by 512 pixels rather than recomputing an unaligne
 
 ## Crop sizing behavior
 
-The format picker shows every catalog ratio in portrait, landscape, and square groups. Size tiers run from XS through XXL, and Max selects the largest ratio locked crop that fits the current source. Oversized tiers remain visible but disabled.
+The format picker shows every catalog ratio in portrait, landscape, and square groups. Size tiers run from XS through XXL, and Max selects the largest ratio locked crop that fits the current source. Tiers larger than the current source are hidden, so the rail only offers sizes that fit.
 
 Changing ratios retains an explicitly selected tier when it fits. If it does not fit, CropDeck uses the largest available tier without forgetting the preference. Magnetic resizing moves continuously, pulls the crop toward nearby catalog sizes, and requires deliberate movement to leave a snapped size.
 
@@ -128,6 +135,8 @@ the File menu, so the table describes a fresh installation rather than a fixed m
 | Ctrl + scroll | Zoom the viewport |
 | Home / End | Move to the top / bottom of the image |
 | Pointer drag inside crop | Move the crop and auto scroll near viewport edges |
+| Double-click footer x or y | Type an exact crop position |
+| Footer chain button | Keep the crop position when switching images |
 | Drop files on the window | Open one image, several images, or one folder |
 | Space + pointer drag or middle drag | Pan the document |
 | Ctrl + C | Copy the current crop to the system clipboard |

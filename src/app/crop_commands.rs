@@ -72,33 +72,34 @@ impl CropDeckApp {
     pub(super) fn apply_format_action(&mut self, action: FormatAction) {
         match action {
             FormatAction::SetRatio(ratio) => self.apply_ratio(ratio),
-            FormatAction::SetTier(tier) => {
-                self.size_preference = CropSizePreference::Tier(tier);
-                let dimensions = PresetDimensions::for_ratio(tier, self.config.aspect_ratio());
-                if let Some(source) = self.source_size()
-                    && dimensions.fits(source)
-                {
-                    self.apply_dimensions(dimensions, source);
-                }
-            }
-            FormatAction::SetMaximum => {
-                self.size_preference = CropSizePreference::Maximum;
-                if let (Some(crop), Some(source)) = (self.workspace.crop, self.source_size()) {
-                    let maximum = CropRect::largest_centered(source, self.config.aspect_ratio());
-                    let resized =
-                        crop.resized_to_dimensions(maximum.width(), maximum.height(), source);
-                    self.workspace.crop = Some(resized);
-                    self.workspace.effective_ratio = crop_effective_ratio(resized);
-                    self.workspace.ensure_crop_visible = true;
-                    self.workspace.resize_wheel = ResizeWheelState::default();
-                }
-            }
             FormatAction::ApplyCustom => {
                 match AspectRatio::new(self.custom_ratio_width, self.custom_ratio_height) {
                     Ok(ratio) => self.apply_ratio(ratio),
                     Err(error) => self.report_error(error.to_string()),
                 }
             }
+        }
+    }
+
+    pub(super) fn apply_tier(&mut self, tier: SizeTier) {
+        self.size_preference = CropSizePreference::Tier(tier);
+        let dimensions = PresetDimensions::for_ratio(tier, self.config.aspect_ratio());
+        if let Some(source) = self.source_size()
+            && dimensions.fits(source)
+        {
+            self.apply_dimensions(dimensions, source);
+        }
+    }
+
+    pub(super) fn apply_maximum(&mut self) {
+        self.size_preference = CropSizePreference::Maximum;
+        if let (Some(crop), Some(source)) = (self.workspace.crop, self.source_size()) {
+            let maximum = CropRect::largest_centered(source, self.config.aspect_ratio());
+            let resized = crop.resized_to_dimensions(maximum.width(), maximum.height(), source);
+            self.workspace.crop = Some(resized);
+            self.workspace.effective_ratio = crop_effective_ratio(resized);
+            self.workspace.ensure_crop_visible = true;
+            self.workspace.resize_wheel = ResizeWheelState::default();
         }
     }
 

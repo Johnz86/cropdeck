@@ -301,7 +301,8 @@ impl CropDeckApp {
                     ui.separator();
                 }
                 if let Some(crop) = self.workspace.crop {
-                    ui.monospace(format!("x {}  y {}", crop.x(), crop.y()));
+                    self.crop_position_controls(ui, crop);
+                    self.size_rail(ui, crop);
                     ui.separator();
                 }
                 if !self.workspace.history.is_empty() {

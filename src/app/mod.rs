@@ -1,14 +1,17 @@
 mod capture;
 mod crop_commands;
+mod crop_position;
 mod dialogs;
 mod file_drop;
 mod format_bar;
+mod icons;
 mod interaction;
 mod output_actions;
 mod panels;
 mod path_field;
 mod shortcut_editor;
 mod shortcuts;
+mod size_rail;
 mod sources;
 mod workspace;
 
@@ -28,6 +31,7 @@ use crate::presets::SizeTier;
 use crate::viewport::TiledTexture;
 
 use self::capture::CapturePlan;
+use self::crop_position::CoordinateEditor;
 use self::panels::RecentExistence;
 use self::path_field::PathField;
 use self::shortcut_editor::ShortcutEditor;
@@ -116,11 +120,13 @@ pub struct CropDeckApp {
     source_field: PathField,
     destination_field: PathField,
     shortcut_editor: ShortcutEditor,
+    coordinate_editor: CoordinateEditor,
 }
 
 impl CropDeckApp {
     #[must_use]
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+        icons::install(&creation_context.egui_ctx);
         let mut startup_errors = Vec::new();
         let config = AppConfig::load_or_default().unwrap_or_else(|error| {
             startup_errors.push(format!("Settings could not be loaded: {error}"));
@@ -185,6 +191,7 @@ impl CropDeckApp {
             source_field: PathField::default(),
             destination_field,
             shortcut_editor: ShortcutEditor::default(),
+            coordinate_editor: CoordinateEditor::default(),
         };
         if let Some(notice) = startup_notice {
             app.notify(notice);

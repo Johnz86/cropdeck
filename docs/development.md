@@ -19,8 +19,10 @@ resize, and snap commands onto crop geometry and resolves catalog sizes; capture
 exports and polls their results; output_actions.rs copies the crop to the clipboard and reveals
 the last export; shortcuts.rs resolves bound commands from keyboard input and runs them;
 shortcut_editor.rs draws the shortcut modal; panels.rs draws the toolbar,
-File menu, recent entries, and status bar; format_bar.rs draws the docked ratio chips, catalog
-picker, size rail, and custom fields; dialogs.rs draws the settings and about modals, including the editable source and destination path
+File menu, recent entries, and status bar; crop_position.rs draws the footer position
+fields and position lock; size_rail.rs draws the footer size rail and crop dimensions; icons.rs declares the Phosphor icon subset and registers
+it with egui at startup; format_bar.rs draws the docked ratio chips, catalog
+picker, and custom fields; dialogs.rs draws the settings and about modals, including the editable source and destination path
 rows; path_field.rs normalizes typed or pasted paths and resolves them against probe results;
 workspace.rs owns zoom and workspace state, the central panel, the launcher, and overlay painting;
 interaction.rs handles pointer drag, panning, wheel resize, and magnetic snapping.

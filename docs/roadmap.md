@@ -20,7 +20,7 @@ Implement the geometry on CropRect in crop.rs and keep shortcut and view orchest
 
 ### Additional crop placement commands
 
-Still unimplemented placement commands include snapping to source edges, duplicating the previous crop position, and moving by exactly one crop height with configurable overlap. Each is an independent task and must place its source coordinate geometry on CropRect rather than in UI code.
+Still unimplemented placement commands include snapping to source edges and moving by exactly one crop height with configurable overlap. Each is an independent task and must place its source coordinate geometry on CropRect rather than in UI code.
 
 ## Output integrations
 

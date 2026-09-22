@@ -27,6 +27,7 @@ development without slowing incremental compilation of application code.
 | `natord` | Natural file ordering with a small focused implementation |
 | `arboard` | System clipboard images on Windows and Linux, with the X11 and Wayland data control backends instead of hand written selection handling |
 | `percent-encoding` | File URI escaping for the Linux reveal call; a Unix only dependency and far smaller than a URL parser |
+| `egui-phosphor` | Phosphor icon glyphs such as the footer chain and broken chain; the `subset` feature keeps only the named icons at compile time, so the embedded font stays a few kilobytes instead of about 500 KB and no SVG rasterizer is needed |
 | `crossbeam-channel` | Background decode, scan, probe, and export workers |
 | `chrono` | Local date token with minimal clock/std features |
 | `tempfile` | Filesystem tests; development dependency only |
@@ -213,14 +214,16 @@ All ratios is the only popup in the bar and is a pure picker: catalog entries in
 landscape, and square seven column groups, closing on the pick. Each tile communicates shape
 visually instead of relying only on text.
 
-Resolution is a segmented XS through XXL rail with a Max action. Tiers larger than the source are
-disabled with a reason. Automatic size preference highlights only a tier whose exact pixels match
-the crop. The bar shows the current crop dimensions and megapixels, which also gives visible
-feedback for wheel and keyboard resizing. Custom ratio fields are inline and commit on Enter, on
-leaving the field, or at the end of a drag; Esc reverts an edit. As the window narrows the bar
-drops the megapixel figure, moves the custom fields into the catalog picker, and finally collapses
-the chips into a single picker button showing the current ratio. The rail and Capture never
-collapse.
+Custom ratio fields are inline and commit on Enter, on leaving the field, or at the end of a
+drag; Esc reverts an edit. As the window narrows the bar moves the custom fields into the catalog
+picker, and finally collapses the chips into a single picker button showing the current ratio.
+Capture never collapses.
+
+Resolution is a compact segmented XS through XXL rail with a Max action in the footer, sized to the
+footer row with small text. Tiers larger than the source are hidden rather than disabled, and the
+outer corners are rounded over the visible segments only, so a small source shows a shorter rail
+instead of dead buttons. Max is always present. Automatic size preference highlights only a tier
+whose exact pixels match the crop.
 
 The first toolbar item is a File menu with Open image, Open folder, an Open recent submenu, Settings,
 Keyboard shortcuts, and About. Recent entries carry the file name, parent folder, and image count for folders, and
@@ -233,8 +236,17 @@ workspace input, and close on Esc, the backdrop, or Close. Filename template err
 inline in the dialog. Menu items and toolbar buttons read their shortcut text from the current
 bindings rather than from literal strings, so a rebound command is labeled correctly everywhere.
 
-The footer is a status bar: queue navigation, file name, crop position, and capture count on the
-left; zoom controls and the latest message on the right. Informational messages expire after four
+The footer is a status bar: queue navigation, file name, crop position, the position lock, the
+size rail, crop dimensions and megapixels, and capture count on the left; zoom controls and the latest message on
+the right. The dimensions give visible feedback for wheel and keyboard resizing. Double-clicking
+x or y swaps the value for a text field that selects its contents; Enter or leaving the field
+applies it, Esc cancels, and the field consumes that Enter so it never also triggers Capture.
+Parsing saturates overflowing numbers, and CropRect::positioned_at clamps the result to the
+source. The lock is a session toggle on WorkspaceState. While it is linked, install_source
+rebuilds the previous rectangle on the new source with CropRect::with_aspect_ratio and the
+retained effective ratio, which keeps the rectangle when it fits, clamps the origin when it does
+not, and shrinks it at the same ratio when the source is smaller; it then scrolls the crop into
+view instead of jumping to the top. Informational messages expire after four
 seconds, errors persist until replaced, and the message truncates instead of wrapping so the canvas
 height never changes.
 

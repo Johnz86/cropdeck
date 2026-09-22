@@ -59,6 +59,7 @@ pub(super) struct WorkspaceState {
     pub(super) ensure_crop_visible: bool,
     pub(super) resize_wheel: ResizeWheelState,
     pub(super) effective_ratio: AspectRatio,
+    pub(super) location_locked: bool,
 }
 
 impl Default for WorkspaceState {
@@ -72,6 +73,7 @@ impl Default for WorkspaceState {
             ensure_crop_visible: false,
             resize_wheel: ResizeWheelState::default(),
             effective_ratio: AspectRatio::default(),
+            location_locked: false,
         }
     }
 }
