@@ -15,6 +15,7 @@ CropDeck is a desktop application for crop extraction. It keeps crop geometry in
 - Visible-tile GPU residency with bounded per-frame uploads and distant-tile release.
 - Half-resolution display copy for zoomed-out views of very wide sources.
 - Non-blocking PNG, JPEG, and lossy WebP export with collision-safe filenames.
+- Clipboard copy of the current crop and file manager reveal of the last export on Windows and Linux.
 - Local configuration and fully offline operation with no accounts or telemetry.
 
 ## Supported formats
@@ -74,12 +75,15 @@ Read [AGENTS.md](AGENTS.md) and the [development guide](docs/development.md) bef
 The required local checks are:
 
 ```shell
-cargo fmt --check
+cargo fmt --all --check
 cargo build
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build --release
 ```
+
+The repository is a Cargo workspace whose default member is the application. Developer tasks live
+in the `xtask` crate and run as `cargo xtask <task>`.
 
 ## License
 

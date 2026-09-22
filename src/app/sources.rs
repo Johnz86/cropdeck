@@ -100,6 +100,9 @@ impl CropDeckApp {
                 FilesystemEvent::DialogClosed { kind, path } => {
                     self.apply_dialog_result(kind, path);
                 }
+                FilesystemEvent::Revealed { path, outcome } => {
+                    self.apply_reveal_result(path, outcome);
+                }
             }
         }
         self.refresh_recent_existence();

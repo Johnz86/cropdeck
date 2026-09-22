@@ -3,6 +3,7 @@ mod crop_commands;
 mod dialogs;
 mod format_bar;
 mod interaction;
+mod output_actions;
 mod panels;
 mod path_field;
 mod shortcuts;
@@ -14,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
+use crate::clipboard::ClipboardService;
 use crate::config::AppConfig;
 use crate::desktop_integration;
 use crate::export::ExportQueue;
@@ -95,6 +97,7 @@ pub struct CropDeckApp {
     filename_template: String,
     filename_template_error: Option<String>,
     export_queue: Option<ExportQueue>,
+    clipboard: Option<ClipboardService>,
     loader: Option<ImageLoader>,
     awaited: Option<PathBuf>,
     pending_exports: usize,
@@ -106,6 +109,7 @@ pub struct CropDeckApp {
     recent_existence: RecentExistence,
     dialog_in_flight: Option<DialogKind>,
     capture_plan: Option<CapturePlan>,
+    last_export: Option<PathBuf>,
     source_field: PathField,
     destination_field: PathField,
 }
@@ -129,6 +133,11 @@ impl CropDeckApp {
         let export_queue = ExportQueue::new(creation_context.egui_ctx.clone())
             .map_err(|error| startup_errors.push(format!("Export worker could not start: {error}")))
             .ok();
+        let clipboard = ClipboardService::new(creation_context.egui_ctx.clone())
+            .map_err(|error| {
+                startup_errors.push(format!("Clipboard worker could not start: {error}"));
+            })
+            .ok();
         let cache_budget_bytes = config.cache_budget_megabytes() as usize * MEBIBYTE;
         let loader = ImageLoader::new(2, creation_context.egui_ctx.clone(), cache_budget_bytes)
             .map_err(|error| startup_errors.push(format!("Image loader could not start: {error}")))
@@ -149,6 +158,7 @@ impl CropDeckApp {
             filename_template: config.export().filename_template().to_owned(),
             filename_template_error: None,
             export_queue,
+            clipboard,
             loader,
             awaited: None,
             pending_exports: 0,
@@ -167,6 +177,7 @@ impl CropDeckApp {
             recent_existence: RecentExistence::default(),
             dialog_in_flight: None,
             capture_plan: None,
+            last_export: None,
             source_field: PathField::default(),
             destination_field,
         };
@@ -198,6 +209,7 @@ impl eframe::App for CropDeckApp {
         self.poll_filesystem();
         self.poll_loader(&context);
         self.poll_exports();
+        self.poll_clipboard();
         self.toolbar(ui);
         self.status_bar(ui);
         self.workspace(ui);
@@ -219,6 +231,11 @@ impl eframe::App for CropDeckApp {
             && let Err(error) = export_queue.shutdown()
         {
             self.report_error(format!("Export worker could not stop cleanly: {error}"));
+        }
+        if let Some(clipboard) = self.clipboard.take()
+            && let Err(error) = clipboard.shutdown()
+        {
+            self.report_error(format!("Clipboard worker could not stop cleanly: {error}"));
         }
         if let Some(filesystem) = self.filesystem.take()
             && let Err(error) = filesystem.shutdown()

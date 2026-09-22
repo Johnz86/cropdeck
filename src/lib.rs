@@ -1,8 +1,10 @@
 pub mod app;
+pub mod clipboard;
 pub mod config;
 pub mod crop;
 pub mod desktop_integration;
 pub mod export;
+pub mod file_manager;
 pub mod filesystem;
 pub mod image_io;
 pub mod loader;

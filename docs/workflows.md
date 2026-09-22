@@ -119,6 +119,21 @@ is retained by itself so the active source remains reusable.
 | Home / End | Move to the top / bottom of the image |
 | Pointer drag inside crop | Move the crop and auto scroll near viewport edges |
 | Space + pointer drag or middle drag | Pan the document |
+| Ctrl + C | Copy the current crop to the system clipboard |
+| Ctrl + Shift + R | Reveal the last export in the file manager |
+
+## Clipboard and file manager
+
+Copy places the current crop on the system clipboard as an image, using the same pixels and the
+same optional output resize as an export, without writing a file. Encoding runs on a background
+worker, so a large crop never stalls the canvas, and the status bar reports the copied dimensions.
+On Linux the clipboard is served by the running application, so a copied crop stays available to
+other programs until CropDeck exits, which is how X11 and Wayland selections work.
+
+Reveal appears in the status bar once a capture has completed and shows that file in the platform
+file manager: Explorer with the file selected on Windows, and on Linux the desktop's file manager
+through the freedesktop ShowItems interface, falling back to opening the containing folder. A
+desktop without either still exports normally; only the reveal is reported as failed.
 
 ## Output behavior
 

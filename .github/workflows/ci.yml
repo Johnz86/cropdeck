@@ -24,9 +24,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
       - name: Resolve release version
         id: version
         run: |
@@ -63,6 +63,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Test on the target platform
+        run: cargo test -p cropdeck --all-features --locked
       - run: cargo build --release --locked
 
       - name: Package Windows executable

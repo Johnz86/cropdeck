@@ -16,6 +16,8 @@ The format picker presents every catalog ratio by orientation and uses a discret
 
 Exports use a configurable tokenized name, configurable output size and quality, and create new file semantics. Existing files are never overwritten silently. Settings and the most recent source are persisted locally without network access.
 
+Two explicit output actions sit beside the export: the current crop can be copied to the system clipboard, and the last completed export can be revealed in the platform file manager. Both are optional, are isolated behind small platform interfaces, and report failure without affecting export behavior.
+
 ## Interaction principles
 
 The source image should dominate the window, and nothing that is adjusted repeatedly while looking at it may cover it or close on its own. The top bar is a permanent format bar: the File menu, numbered quick ratio chips, a catalog picker, the size rail, the current crop dimensions, custom ratio fields, and Capture. It stays in place with no image open so the ratio can be chosen before opening a folder and the layout never reflows. Controls that cannot act in the current state are disabled rather than hidden. The footer is a read-only status bar with contextual queue navigation, viewport sizing, crop position, capture count, and the latest message.

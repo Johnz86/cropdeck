@@ -25,6 +25,8 @@ development without slowing incremental compilation of application code.
 | `thiserror`, `anyhow` | Library and application error context |
 | `directories` | Platform correct settings location; it resolves the roaming folder through the platform API, so an `APPDATA` environment override does not redirect it |
 | `natord` | Natural file ordering with a small focused implementation |
+| `arboard` | System clipboard images on Windows and Linux, with the X11 and Wayland data control backends instead of hand written selection handling |
+| `percent-encoding` | File URI escaping for the Linux reveal call; a Unix only dependency and far smaller than a URL parser |
 | `crossbeam-channel` | Background decode, scan, probe, and export workers |
 | `chrono` | Local date token with minimal clock/std features |
 | `tempfile` | Filesystem tests; development dependency only |
@@ -43,6 +45,28 @@ development without slowing incremental compilation of application code.
   must stay on the UI thread, because the capture needs that index in the same frame for the
   history label and the status message. The atomic create-new open is the actual overwrite guard,
   covering the window between resolution and writing that the probe cannot see.
+
+### Clipboard and reveal
+
+Copying reuses the export crop_pixels function, so clipboard and file output cannot drift apart,
+and it runs on its own worker because resizing a crop to output dimensions is Lanczos work that
+does not belong in a frame. A failed copy touches no export state.
+
+Copy is routed from egui's Copy event rather than from a Ctrl+C key press, because egui-winit
+translates the platform copy combination into that event and never delivers the key itself. That
+also keeps the binding correct on any platform whose copy chord differs.
+
+The worker holds one long lived clipboard handle. On X11 the last dropped `arboard` handle tears
+down the selection owner and hands the data to a clipboard manager if one exists, so a handle
+created per copy loses the image as soon as the copy returns. A write failure drops the handle so
+the next copy reconnects.
+
+Revealing is a list of candidate commands rather than one command. Linux tries the freedesktop
+FileManager1 ShowItems method, which selects the file in the desktop's own file manager, then
+falls back to opening the containing folder with xdg-open; Windows uses one Explorer selection.
+The commands are built as program and argument values by a pure function, so both platforms are
+unit testable on either host and a path containing spaces or quotes never reaches a shell. Only
+ShowItems is waited on, because Explorer reports a nonzero exit code even when it succeeds.
 
 ### Filesystem access
 

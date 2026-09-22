@@ -15,7 +15,8 @@ The native entry point is src/main.rs. The application lives in the src/app/ mod
 mod.rs owns CropDeckApp, its construction, and the eframe App implementation; sources.rs opens
 images and folders, installs queues, and drives the loader; crop_commands.rs maps ratio, move,
 resize, and snap commands onto crop geometry and resolves catalog sizes; capture.rs submits
-exports and polls their results; shortcuts.rs routes keyboard input; panels.rs draws the toolbar,
+exports and polls their results; output_actions.rs copies the crop to the clipboard and reveals
+the last export; shortcuts.rs routes keyboard input; panels.rs draws the toolbar,
 File menu, recent entries, and status bar; format_bar.rs draws the docked ratio chips, catalog
 picker, size rail, and custom fields; dialogs.rs draws the settings and about modals, including the editable source and destination path
 rows; path_field.rs normalizes typed or pasted paths and resolves them against probe results;
@@ -31,8 +32,15 @@ in src/image_io.rs. Directory scanning, path existence probing, and native file 
 worker threads owned by src/filesystem.rs. Background decode scheduling, stale-request handling,
 neighbor prefetch, and decoded-source caching are in src/loader.rs.
 Filename templates and collision resolution are in src/naming.rs. Background encoding and export
-validation are in src/export.rs. The ratio catalog and tier sizes are constants in src/presets.rs;
+validation are in src/export.rs; its crop_pixels is the single source of exported and copied
+pixels. Clipboard image writing runs on the worker in src/clipboard.rs, and the platform reveal
+commands are built in src/file_manager.rs. The ratio catalog and tier sizes are constants in src/presets.rs;
 every preset dimension is derived from a tier's longest side and the ratio, never stored.
+
+Developer tooling that is not part of the application lives in the xtask crate, a workspace member
+that is excluded from the default build. screenshot.rs owns its arguments, capture verification,
+and pixel conversion, while x11_capture.rs owns the X11 connection. New developer tasks belong
+there as further subcommands rather than as loose scripts.
 
 ## Runtime flow
 
@@ -110,8 +118,12 @@ such as the mutation counter.
 GPU residency must stay bounded by the visible region rather than source height, and exported
 pixels must never depend on the display copy.
 
-The application remains offline. New network services, telemetry, external processes, or large
-runtime dependencies require an explicit product decision.
+The application remains offline. New network services, telemetry, or large runtime dependencies
+require an explicit product decision. The only external processes are the file manager commands in
+src/file_manager.rs, which are spawned with separate arguments and never through a shell.
+
+Clipboard and reveal actions are explicit and optional. Neither may change export behavior: a
+failed copy or a desktop with no file manager reports a status message and nothing else.
 
 ## Change boundaries
 
@@ -137,8 +149,8 @@ state such as viewport visibility.
 The fixed shortcuts currently occupy arrows, W/A/S/D, Q/E, Space, Enter, F, R, number keys 1
 through 9, brackets, Home, End, Plus, and Minus, together with Shift and Ctrl variants documented
 in the controls table of workflows.md. Before assigning a key, inspect both that table and
-handle_shortcuts in src/app/shortcuts.rs. Avoid modified C combinations while clipboard work
-remains on the roadmap.
+handle_shortcuts in src/app/shortcuts.rs. Ctrl+C copies the crop and Ctrl+Shift+R reveals the
+last export; unmodified C stays free for the centering command on the roadmap.
 
 ## Development workflow
 
@@ -147,8 +159,14 @@ before editing. State the behavior and invariants that will change. Add or updat
 domain change, update user documentation when controls change, and update implementation.md when a
 dependency choice, design decision, or performance characteristic changes.
 
-Run cargo fmt after Rust edits. Before handoff or commit, run cargo fmt --check, cargo build,
-cargo test, cargo clippy --all-targets --all-features -- -D warnings, and cargo build --release. A
+Clipboard round trip tests use the real system clipboard and therefore replace its contents. They
+run wherever a display is available and are skipped on a headless Linux session; CI covers them on
+the Windows runner, which also builds the Windows reveal command.
+
+Run cargo fmt --all after Rust edits. Before handoff or commit, run cargo fmt --all --check,
+cargo build, cargo test --workspace, cargo clippy --workspace --all-targets --all-features --
+-D warnings, and cargo build --release. The workspace flags matter because the application is the
+only default member; without them the xtask crate is never checked. A
 UI or load-path change also requires a native smoke test that exercises the changed behavior
 instead of only opening the executable. Linux specific claims require the corresponding CI or
 device result rather than inference from a Windows build.
@@ -158,6 +176,9 @@ Load-path changes require timings on the same class of source before and after, 
 the performance characteristics in implementation.md.
 
 ### Native smoke procedure
+
+The procedure differs by platform, but the rule does not: capture the application window, never
+the desktop, and verify the capture before reading it.
 
 Drive the release binary through the accessibility tree rather than synthetic input. On Windows,
 UI Automation InvokePattern reaches every egui button by its label, including the File menu,
@@ -171,6 +192,29 @@ Isolate settings by backing up the real configuration file, writing the smoke co
 place, and restoring the backup when the run ends, even on failure. The `directories` crate
 resolves the configuration folder through the platform API, so environment variable overrides do
 not redirect it.
+
+### Window capture on Linux
+
+Capture one window with the repository's own task runner:
+
+```shell
+cargo xtask screenshot --output screenshots/cropdeck.png
+```
+
+It reads the window's pixels straight from the X server and writes the PNG itself, so a warm run
+costs about 0.1 second and needs no screenshot utility. It verifies the capture before it is read
+and fails when no window of that name is mapped, when another window overlaps it, when the capture
+covers the whole desktop, and when the window is smaller than --min-side. The overlap check matters
+most: X11 hands back whatever is on screen inside the window's geometry, so a capture of a covered
+window silently shows the other application. A desktop screenshot of a multi monitor session shows
+nothing useful about a window level change either, so a capture that has not passed these checks is
+not evidence.
+
+--name selects another window, and --activate raises and focuses the target first, which takes
+focus from the user and is therefore opt in. The default output is screenshots/cropdeck.png, which
+git ignores. Window capture is implemented for X11; the task reports that plainly elsewhere, and
+Windows smoke runs keep using the PrintWindow procedure above, because reaching it would require
+unsafe FFI that this repository does not allow.
 
 ## Documentation maintenance
 

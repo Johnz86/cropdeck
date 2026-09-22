@@ -43,6 +43,17 @@ const fn is_menu_key(key: Key) -> bool {
     )
 }
 
+fn consume_copy_request(context: &egui::Context) -> bool {
+    context.input_mut(|input| {
+        let requested = input
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Copy));
+        input.events.retain(|event| !matches!(event, Event::Copy));
+        requested
+    })
+}
+
 fn workspace_key_pressed(context: &egui::Context) -> bool {
     context.input(|input| {
         input.events.iter().any(
@@ -97,6 +108,11 @@ impl CropDeckApp {
             self.open_image_dialog();
         } else if consume(Modifiers::CTRL, Key::Comma) {
             self.settings_open = true;
+        } else if consume(Modifiers::CTRL | Modifiers::SHIFT, Key::R) {
+            self.reveal_last_export();
+        }
+        if consume_copy_request(context) {
+            self.copy_crop();
         }
     }
 
@@ -238,6 +254,21 @@ mod tests {
     fn modal_state_wins_over_everything_else() {
         assert_eq!(focus_with(Vec::new(), true), InputFocus::Modal);
         assert_eq!(focus_with(Vec::new(), false), InputFocus::Canvas);
+    }
+
+    #[test]
+    fn a_copy_request_is_taken_once_because_egui_reports_it_as_an_event() {
+        let context = egui::Context::default();
+        context.begin_pass(egui::RawInput {
+            events: vec![Event::Copy, Event::Text(String::from("c"))],
+            ..Default::default()
+        });
+
+        assert!(consume_copy_request(&context));
+        assert!(!consume_copy_request(&context));
+        context.input(|input| {
+            assert_eq!(input.events, vec![Event::Text(String::from("c"))]);
+        });
     }
 
     #[test]

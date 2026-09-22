@@ -32,10 +32,6 @@ Still unimplemented placement commands include snapping to source edges, duplica
 
 ## Output integrations
 
-### Clipboard and file manager actions
-
-Potential additions are copying the current crop to the system clipboard and revealing a completed export in the platform file manager. Both are explicit user actions. Platform behavior must be isolated behind small interfaces and failures must not affect export completion.
-
 ### Coordinate manifests
 
 A JSON manifest can expose source paths, nominal ratios, effective dimensions, crop coordinates, and resolved output paths for dataset or pipeline use. The format requires a version field, deterministic ordering, create new output behavior, and round trip tests.

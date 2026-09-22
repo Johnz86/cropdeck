@@ -104,6 +104,16 @@ impl CropDeckApp {
                     {
                         self.capture_and_advance();
                     }
+                    if ui
+                        .add_enabled(
+                            self.can_copy_crop(),
+                            bar_button("Copy").shortcut_text("Ctrl+C"),
+                        )
+                        .on_hover_text("Copy the crop to the clipboard")
+                        .clicked()
+                    {
+                        self.copy_crop();
+                    }
                 });
             });
         });
@@ -272,6 +282,16 @@ impl CropDeckApp {
                         ui.add(egui::Spinner::new().size(12.0));
                         ui.weak(format!("scanning {}", display_file_name(&scan.root)));
                         ui.separator();
+                    }
+                    if self.can_reveal_export()
+                        && ui
+                            .button("Reveal")
+                            .on_hover_text(
+                                "Show the last export in the file manager (Ctrl+Shift+R)",
+                            )
+                            .clicked()
+                    {
+                        self.reveal_last_export();
                     }
                     if self.pending_exports > 0 {
                         ui.weak(format!("exporting {}", self.pending_exports));
