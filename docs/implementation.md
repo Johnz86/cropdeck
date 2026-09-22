@@ -20,12 +20,15 @@ development without slowing incremental compilation of application code.
 | `eframe` | Native egui shell; use `glow`, X11, and Wayland instead of `wgpu` |
 | `image` | JPEG and PNG decoding and encoding only; its WebP decoder is disabled and `image-webp` must stay absent from the resolved graph |
 | `webp` | libwebp-based WebP decode and lossy encode; optional `image` integration stays disabled |
-| `rfd` | Native dialogs; use the XDG portal backend on Linux |
+| `rfd` | Native dialogs; use the XDG portal backend on Linux. It resolves with `pollster` and no DBus client of its own, so its synchronous API is a blocking wrapper over the async one and an executor would buy nothing; dialogs run on detached threads instead |
 | `serde`, `serde_json` | Typed JSON settings |
 | `thiserror`, `anyhow` | Library and application error context |
 | `directories` | Platform correct settings location; it resolves the roaming folder through the platform API, so an `APPDATA` environment override does not redirect it |
 | `natord` | Natural file ordering with a small focused implementation |
-| `crossbeam-channel` | Background decode workers and the bounded export queue |
+| `arboard` | System clipboard images on Windows and Linux, with the X11 and Wayland data control backends instead of hand written selection handling |
+| `percent-encoding` | File URI escaping for the Linux reveal call; a Unix only dependency and far smaller than a URL parser |
+| `egui-phosphor` | Phosphor icon glyphs such as the footer chain and broken chain; the `subset` feature keeps only the named icons at compile time, so the embedded font stays a few kilobytes instead of about 500 KB and no SVG rasterizer is needed |
+| `crossbeam-channel` | Background decode, scan, probe, and export workers |
 | `chrono` | Local date token with minimal clock/std features |
 | `tempfile` | Filesystem tests; development dependency only |
 
@@ -34,9 +37,96 @@ development without slowing incremental compilation of application code.
 - Sources decode fully into CPU memory, but the GPU only ever holds tiles no taller than 2,048
   rows near the viewport. This avoids maximum texture height failures for very tall sources and
   keeps GPU memory independent of source height.
-- Export jobs own an immutable image reference and run on a bounded background worker so
-  encoding cannot stall input handling.
-- Existing files are never silently overwritten; name resolution increments the requested index.
+- Export jobs own an immutable image reference and run on a single unbounded background worker so
+  encoding cannot stall input handling and a capture can never be rejected. A bounded queue was
+  tried first and discarded the crop, its history entry, and the advance together when it filled.
+  It also bounded the wrong quantity: every job from one page clones the same reference counted
+  source, so job count and pinned bytes are unrelated.
+- Existing files are never silently overwritten. Name resolution increments the requested index and
+  must stay on the UI thread, because the capture needs that index in the same frame for the
+  history label and the status message. The atomic create-new open is the actual overwrite guard,
+  covering the window between resolution and writing that the probe cannot see.
+
+### Clipboard and reveal
+
+Copying reuses the export crop_pixels function, so clipboard and file output cannot drift apart,
+and it runs on its own worker because resizing a crop to output dimensions is Lanczos work that
+does not belong in a frame. A failed copy touches no export state.
+
+Copy is routed from egui's Copy event rather than from a Ctrl+C key press, because egui-winit
+translates the platform copy combination into that event and never delivers the key itself. The
+shortcut layer therefore turns that event back into a Ctrl+C chord before matching, so the copy
+command is bound and rebound like every other command.
+
+The worker holds one long lived clipboard handle. On X11 the last dropped `arboard` handle tears
+down the selection owner and hands the data to a clipboard manager if one exists, so a handle
+created per copy loses the image as soon as the copy returns. A write failure drops the handle so
+the next copy reconnects.
+
+Revealing is a list of candidate commands rather than one command. Linux tries the freedesktop
+FileManager1 ShowItems method, which selects the file in the desktop's own file manager, then
+falls back to opening the containing folder with xdg-open; Windows uses one Explorer selection.
+The commands are built as program and argument values by a pure function, so both platforms are
+unit testable on either host and a path containing spaces or quotes never reaches a shell. Only
+ShowItems is waited on, because Explorer reports a nonzero exit code even when it succeeds.
+
+### Filesystem access
+
+No filesystem call may block a frame. Scanning, probing, and native dialogs therefore live behind
+a service with two persistent workers and a detached thread per dialog.
+
+Scans and probes get separate threads rather than one worker behind a job enum, because their
+latencies are unrelated and unbounded in both directions: a recursive walk of a large tree would
+delay an existence probe, and a probe against an unreachable network mount would delay a scan. A
+shared pool has the same defect, and a fairness scheduler is more code than a second thread parked
+on a channel. They are kept out of the decode pool for the same reason, since a worker walking a
+directory is a worker not decoding.
+
+Scanning streams rather than completing before the first image appears. The walk is breadth first
+and sorts each directory before emitting it, which the previous stack-based walk did not need
+because the whole list was sorted once at the end. Streaming makes emission order visible, and
+depth-first order with unspecified directory listing would surface pages out of order.
+
+Batches merge into the queue in linear time rather than re-sorting it, and the merge shifts the
+current index so the image on screen never moves while the queue grows underneath the user. Only
+the reported position changes. A queue is never constructed empty, because the current path is
+indexed directly.
+
+Cancellation is a generation counter. A new selection advances it, the walk observes the change at
+its next batch and abandons, and any event already queued is discarded by the same check on the UI
+side. Both halves are needed; neither alone is sufficient.
+
+A probe reports existence and directory-ness from one metadata call, because the path fields need
+both and probing twice would be wasteful. Any error other than a missing entry reports the path as
+present, since a permission failure on a parent is not evidence that the entry is gone and
+offering to forget a temporarily unreachable source is destructive.
+
+Path input is validated on the probe worker after a debounce, and a result is applied only while it
+still matches the draft, which makes a stale probe from an earlier keystroke harmless. A
+destination that does not yet exist is accepted rather than rejected, because it is created on
+first capture; only an existing file at that path, a missing parent, or a relative path is refused.
+
+The capture path caches its prepared destination and parsed filename template behind a
+configuration revision counter, so directory creation and template parsing happen once per settings
+and source pair instead of on every keypress. `AppConfig` compares persisted fields only, because
+the counter is in-memory bookkeeping and would otherwise make identical settings compare unequal.
+
+### Drag and drop
+
+Drop classification is a pure function over the dropped paths, so it is unit tested without an egui
+context and shares its result with the hover overlay. It performs no filesystem call, which keeps
+the invariant above intact while the overlay repaints on every pointer motion of a drag.
+
+A single dropped item is therefore handed to the scan worker unclassified. The worker already
+distinguishes a directory from an image and already reports an unusable path, so inspecting it on
+the UI thread would duplicate that logic and stat a path that may sit on an unreachable mount. Only
+a multiple item drop is classified up front, from filename extensions alone, and one unsupported
+item rejects the whole drop by name rather than silently opening the remainder.
+
+Several dropped images build an ImageQueue directly instead of scanning their folder, because the
+drop is itself the selection; scanning would add images the user did not choose. Such a queue has
+no single source path, so it is not added to recent sources and it clears the Source field rather
+than claiming a folder that was never opened.
 
 ### Image load path
 
@@ -124,26 +214,39 @@ All ratios is the only popup in the bar and is a pure picker: catalog entries in
 landscape, and square seven column groups, closing on the pick. Each tile communicates shape
 visually instead of relying only on text.
 
-Resolution is a segmented XS through XXL rail with a Max action. Tiers larger than the source are
-disabled with a reason. Automatic size preference highlights only a tier whose exact pixels match
-the crop. The bar shows the current crop dimensions and megapixels, which also gives visible
-feedback for wheel and keyboard resizing. Custom ratio fields are inline and commit on Enter, on
-leaving the field, or at the end of a drag; Esc reverts an edit. As the window narrows the bar
-drops the megapixel figure, moves the custom fields into the catalog picker, and finally collapses
-the chips into a single picker button showing the current ratio. The rail and Capture never
-collapse.
+Custom ratio fields are inline and commit on Enter, on leaving the field, or at the end of a
+drag; Esc reverts an edit. As the window narrows the bar moves the custom fields into the catalog
+picker, and finally collapses the chips into a single picker button showing the current ratio.
+Capture never collapses.
+
+Resolution is a compact segmented XS through XXL rail with a Max action in the footer, sized to the
+footer row with small text. Tiers larger than the source are hidden rather than disabled, and the
+outer corners are rounded over the visible segments only, so a small source shows a shorter rail
+instead of dead buttons. Max is always present. Automatic size preference highlights only a tier
+whose exact pixels match the crop.
 
 The first toolbar item is a File menu with Open image, Open folder, an Open recent submenu, Settings,
-and About. Recent entries carry the file name, parent folder, and image count for folders, and
+Keyboard shortcuts, and About. Recent entries carry the file name, parent folder, and image count for folders, and
 missing entries are marked rather than silently dropped. Capture is the single primary action and
 shows its key. With no image open the same open actions and recent list are drawn in the empty
 workspace.
 
-Settings and About use egui's modal container so they dim the canvas, block workspace input, and
-close on Esc, the backdrop, or Close. Filename template errors are shown inline in the dialog.
+Settings, Keyboard shortcuts, and About use egui's modal container so they dim the canvas, block
+workspace input, and close on Esc, the backdrop, or Close. Filename template errors are shown
+inline in the dialog. Menu items and toolbar buttons read their shortcut text from the current
+bindings rather than from literal strings, so a rebound command is labeled correctly everywhere.
 
-The footer is a status bar: queue navigation, file name, crop position, and capture count on the
-left; zoom controls and the latest message on the right. Informational messages expire after four
+The footer is a status bar: queue navigation, file name, crop position, the position lock, the
+size rail, crop dimensions and megapixels, and capture count on the left; zoom controls and the latest message on
+the right. The dimensions give visible feedback for wheel and keyboard resizing. Double-clicking
+x or y swaps the value for a text field that selects its contents; Enter or leaving the field
+applies it, Esc cancels, and the field consumes that Enter so it never also triggers Capture.
+Parsing saturates overflowing numbers, and CropRect::positioned_at clamps the result to the
+source. The lock is a session toggle on WorkspaceState. While it is linked, install_source
+rebuilds the previous rectangle on the new source with CropRect::with_aspect_ratio and the
+retained effective ratio, which keeps the rectangle when it fits, clamps the origin when it does
+not, and shrinks it at the same ratio when the source is smaller; it then scrolls the crop into
+view instead of jumping to the top. Informational messages expire after four
 seconds, errors persist until replaced, and the message truncates instead of wrapping so the canvas
 height never changes.
 
@@ -153,6 +256,27 @@ Input focus is resolved once per frame into canvas, text field, menu, or modal. 
 modals suppress workspace shortcuts; a modal also suppresses wheel zoom. An open menu keeps only
 arrows, Enter, and Esc; any other workspace key closes the menu and runs, so a capture is never
 lost to an open menu. Esc during a pointer drag restores the crop to where the drag began.
+
+Keyboard input is matched against a stored binding map rather than against literal keys. One table
+declares every command with its group, its editor label, its default chords, the modifiers its
+binding ignores, and whether it accepts key repeats; the command enum indexes that table, so
+adding a command cannot leave defaults, labels, or persistence behind. Matched events are removed
+from the frame's event queue exactly as the previous consume_key calls removed them, so no widget
+sees a key that ran a command.
+
+Ignored modifiers keep one binding per direction while preserving the modifier variants. Movement
+ignores Ctrl and Shift because those choose one, ten, or fifty source pixels, crop resizing ignores
+Ctrl, and zooming ignores Shift. Collision detection compares chords after removing the ignored
+modifiers of both commands, which is why Shift+bracket can remain a separate command from bracket
+while Ctrl+arrow cannot be taken from movement.
+
+The editor records a chord instead of parsing typed text. While recording, every key and text event
+is drained before any widget runs, so the filter field cannot swallow the recording and Esc cancels
+it instead of closing the modal. A chord that belongs to another command is held as a pending
+assignment and applied only when the user chooses to reassign it, which keeps the map collision
+free at all times. Bindings are stored by command name and chord name, and a stored file that names
+an unknown command, an unparsable chord, or a collision loses only the affected entries: the rest of
+the settings file survives, and anything missing falls back to its default.
 
 The catalog deliberately separates presentation from crop geometry:
 

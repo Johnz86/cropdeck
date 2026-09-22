@@ -8,6 +8,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::{Receiver, Sender};
 use thiserror::Error;
 
+use crate::file_manager::{self, FileManagerError};
 use crate::image_io::{ImageIoError, ScanControl, ScanDepth, is_supported_image, scan_images};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -70,6 +71,10 @@ pub enum FilesystemEvent {
     DialogClosed {
         kind: DialogKind,
         path: Option<PathBuf>,
+    },
+    Revealed {
+        path: PathBuf,
+        outcome: Result<(), FileManagerError>,
     },
 }
 
@@ -218,6 +223,28 @@ impl FilesystemService {
                 };
                 if events
                     .send(FilesystemEvent::DialogClosed { kind, path })
+                    .is_ok()
+                {
+                    repaint.request_repaint();
+                }
+            })
+            .map(|_handle| ())
+            .map_err(FilesystemError::SpawnWorker)
+    }
+
+    pub fn reveal(&self, path: PathBuf) -> Result<(), FilesystemError> {
+        let events = self
+            .event_sender
+            .as_ref()
+            .ok_or(FilesystemError::WorkersStopped)?
+            .clone();
+        let repaint = self.repaint.clone();
+        thread::Builder::new()
+            .name(String::from("cropdeck-fs-reveal"))
+            .spawn(move || {
+                let outcome = file_manager::reveal(&path);
+                if events
+                    .send(FilesystemEvent::Revealed { path, outcome })
                     .is_ok()
                 {
                     repaint.request_repaint();

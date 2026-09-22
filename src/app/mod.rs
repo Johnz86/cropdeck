@@ -1,11 +1,17 @@
 mod capture;
 mod crop_commands;
+mod crop_position;
 mod dialogs;
+mod file_drop;
 mod format_bar;
+mod icons;
 mod interaction;
+mod output_actions;
 mod panels;
 mod path_field;
+mod shortcut_editor;
 mod shortcuts;
+mod size_rail;
 mod sources;
 mod workspace;
 
@@ -14,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
+use crate::clipboard::ClipboardService;
 use crate::config::AppConfig;
 use crate::desktop_integration;
 use crate::export::ExportQueue;
@@ -24,8 +31,10 @@ use crate::presets::SizeTier;
 use crate::viewport::TiledTexture;
 
 use self::capture::CapturePlan;
+use self::crop_position::CoordinateEditor;
 use self::panels::RecentExistence;
 use self::path_field::PathField;
+use self::shortcut_editor::ShortcutEditor;
 use self::shortcuts::InputFocus;
 use self::workspace::WorkspaceState;
 
@@ -95,6 +104,7 @@ pub struct CropDeckApp {
     filename_template: String,
     filename_template_error: Option<String>,
     export_queue: Option<ExportQueue>,
+    clipboard: Option<ClipboardService>,
     loader: Option<ImageLoader>,
     awaited: Option<PathBuf>,
     pending_exports: usize,
@@ -106,13 +116,17 @@ pub struct CropDeckApp {
     recent_existence: RecentExistence,
     dialog_in_flight: Option<DialogKind>,
     capture_plan: Option<CapturePlan>,
+    last_export: Option<PathBuf>,
     source_field: PathField,
     destination_field: PathField,
+    shortcut_editor: ShortcutEditor,
+    coordinate_editor: CoordinateEditor,
 }
 
 impl CropDeckApp {
     #[must_use]
     pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
+        icons::install(&creation_context.egui_ctx);
         let mut startup_errors = Vec::new();
         let config = AppConfig::load_or_default().unwrap_or_else(|error| {
             startup_errors.push(format!("Settings could not be loaded: {error}"));
@@ -128,6 +142,11 @@ impl CropDeckApp {
         let output_size = config.export().output_size();
         let export_queue = ExportQueue::new(creation_context.egui_ctx.clone())
             .map_err(|error| startup_errors.push(format!("Export worker could not start: {error}")))
+            .ok();
+        let clipboard = ClipboardService::new(creation_context.egui_ctx.clone())
+            .map_err(|error| {
+                startup_errors.push(format!("Clipboard worker could not start: {error}"));
+            })
             .ok();
         let cache_budget_bytes = config.cache_budget_megabytes() as usize * MEBIBYTE;
         let loader = ImageLoader::new(2, creation_context.egui_ctx.clone(), cache_budget_bytes)
@@ -149,6 +168,7 @@ impl CropDeckApp {
             filename_template: config.export().filename_template().to_owned(),
             filename_template_error: None,
             export_queue,
+            clipboard,
             loader,
             awaited: None,
             pending_exports: 0,
@@ -167,8 +187,11 @@ impl CropDeckApp {
             recent_existence: RecentExistence::default(),
             dialog_in_flight: None,
             capture_plan: None,
+            last_export: None,
             source_field: PathField::default(),
             destination_field,
+            shortcut_editor: ShortcutEditor::default(),
+            coordinate_editor: CoordinateEditor::default(),
         };
         if let Some(notice) = startup_notice {
             app.notify(notice);
@@ -188,7 +211,10 @@ impl CropDeckApp {
     }
 
     fn input_focus(&self, context: &egui::Context) -> InputFocus {
-        InputFocus::current(context, self.settings_open || self.about_open)
+        InputFocus::current(
+            context,
+            self.settings_open || self.about_open || self.shortcut_editor.is_open(),
+        )
     }
 }
 
@@ -198,14 +224,19 @@ impl eframe::App for CropDeckApp {
         self.poll_filesystem();
         self.poll_loader(&context);
         self.poll_exports();
+        self.poll_clipboard();
         self.toolbar(ui);
         self.status_bar(ui);
         self.workspace(ui);
+        self.file_drop(&context);
         if self.settings_open {
             self.settings_dialog(&context);
         }
         if self.about_open {
             self.about_dialog(&context);
+        }
+        if self.shortcut_editor.is_open() {
+            self.shortcut_dialog(&context);
         }
     }
 
@@ -219,6 +250,11 @@ impl eframe::App for CropDeckApp {
             && let Err(error) = export_queue.shutdown()
         {
             self.report_error(format!("Export worker could not stop cleanly: {error}"));
+        }
+        if let Some(clipboard) = self.clipboard.take()
+            && let Err(error) = clipboard.shutdown()
+        {
+            self.report_error(format!("Clipboard worker could not stop cleanly: {error}"));
         }
         if let Some(filesystem) = self.filesystem.take()
             && let Err(error) = filesystem.shutdown()

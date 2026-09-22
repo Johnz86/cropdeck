@@ -1,68 +1,48 @@
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
+    self, Align2, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
 };
 
 use crate::crop::AspectRatio;
-use crate::presets::{AspectRatioCatalog, Orientation, PresetDimensions, SizeTier, catalog};
+use crate::presets::{AspectRatioCatalog, Orientation, catalog};
 
-use super::crop_commands::{crop_area, matching_tier};
-use super::{CropDeckApp, CropSizePreference};
+use super::CropDeckApp;
 
 const QUICK_RATIO_COUNT: usize = 9;
 const CATALOG_POPUP_WIDTH: f32 = 520.0;
 
 pub(super) const CONTROL_HEIGHT: f32 = 34.0;
-const RAIL_SEGMENT_WIDTH: f32 = 34.0;
 const CUSTOM_FIELD_WIDTH: f32 = 52.0;
 
 pub(super) fn bar_button<'a>(text: impl Into<egui::WidgetText>) -> egui::Button<'a> {
     egui::Button::new(text).min_size(Vec2::new(0.0, CONTROL_HEIGHT))
 }
 
-fn segment_corners(index: usize, count: usize, radius: u8) -> CornerRadius {
-    CornerRadius {
-        nw: if index == 0 { radius } else { 0 },
-        sw: if index == 0 { radius } else { 0 },
-        ne: if index + 1 == count { radius } else { 0 },
-        se: if index + 1 == count { radius } else { 0 },
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FormatAction {
     SetRatio(AspectRatio),
-    SetTier(SizeTier),
-    SetMaximum,
     ApplyCustom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FormatBarDensity {
     Full,
-    NoMegapixels,
     NoCustom,
     Compact,
 }
 
 impl FormatBarDensity {
     pub(super) fn for_width(available_width: f32) -> Self {
-        if available_width >= 1_280.0 {
+        if available_width >= 970.0 {
             Self::Full
-        } else if available_width >= 1_220.0 {
-            Self::NoMegapixels
-        } else if available_width >= 1_080.0 {
+        } else if available_width >= 830.0 {
             Self::NoCustom
         } else {
             Self::Compact
         }
     }
 
-    const fn shows_megapixels(self) -> bool {
-        matches!(self, Self::Full)
-    }
-
     const fn shows_custom_inline(self) -> bool {
-        matches!(self, Self::Full | Self::NoMegapixels)
+        matches!(self, Self::Full)
     }
 
     const fn shows_quick_ratios(self) -> bool {
@@ -105,8 +85,6 @@ impl CropDeckApp {
         density: FormatBarDensity,
     ) -> Option<FormatAction> {
         let ratio = self.config.aspect_ratio();
-        let source = self.source_size();
-        let crop = self.workspace.crop;
         let catalog = catalog();
         let mut action = None;
         let mut custom_width = self.custom_ratio_width;
@@ -171,69 +149,6 @@ impl CropDeckApp {
                         }
                     });
             });
-
-        ui.separator();
-        let dimensions = SizeTier::ALL.map(|tier| PresetDimensions::for_ratio(tier, ratio));
-        let active_tier = crop.and_then(|crop| matching_tier(ratio, crop));
-        let segment_count = SizeTier::ALL.len() + 1;
-        let radius = ui.visuals().widgets.inactive.corner_radius.nw;
-        ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            for (index, (tier, dimensions)) in SizeTier::ALL.into_iter().zip(dimensions).enumerate()
-            {
-                let fits = source.is_some_and(|source| dimensions.fits(source));
-                let selected = match self.size_preference {
-                    CropSizePreference::Tier(preferred) => preferred == tier,
-                    CropSizePreference::Automatic => active_tier == Some(tier),
-                    CropSizePreference::Maximum => false,
-                };
-                let response = ui.add_enabled(
-                    fits,
-                    bar_button(tier.label())
-                        .min_size(Vec2::new(RAIL_SEGMENT_WIDTH, CONTROL_HEIGHT))
-                        .corner_radius(segment_corners(index, segment_count, radius))
-                        .selected(selected),
-                );
-                let response = response.on_hover_text(format!(
-                    "{} x {}  ({:.1} MP)",
-                    dimensions.width(),
-                    dimensions.height(),
-                    dimensions.megapixels()
-                ));
-                if !fits {
-                    let reason = source.map_or(
-                        "Open an image to choose an exact size",
-                        |_source| "This preset is larger than the source image",
-                    );
-                    response.clone().on_disabled_hover_text(reason);
-                }
-                if response.clicked() {
-                    action = Some(FormatAction::SetTier(tier));
-                }
-            }
-            let maximum_selected = self.size_preference == CropSizePreference::Maximum;
-            if ui
-                .add_enabled(
-                    source.is_some(),
-                    bar_button("Max")
-                        .min_size(Vec2::new(RAIL_SEGMENT_WIDTH + 6.0, CONTROL_HEIGHT))
-                        .corner_radius(segment_corners(segment_count - 1, segment_count, radius))
-                        .selected(maximum_selected),
-                )
-                .on_hover_text("Use the largest crop that fits the source")
-                .clicked()
-            {
-                action = Some(FormatAction::SetMaximum);
-            }
-        });
-
-        if let Some(crop) = crop {
-            ui.separator();
-            ui.monospace(format!("{} × {}", crop.width(), crop.height()));
-            if density.shows_megapixels() {
-                ui.weak(format!("{:.1} MP", crop_area(crop) as f64 / 1_000_000.0));
-            }
-        }
 
         if density.shows_custom_inline() {
             ui.separator();
@@ -425,11 +340,7 @@ mod tests {
     fn format_bar_collapses_in_stages_as_the_window_narrows() {
         assert_eq!(FormatBarDensity::for_width(1_600.0), FormatBarDensity::Full);
         assert_eq!(
-            FormatBarDensity::for_width(1_250.0),
-            FormatBarDensity::NoMegapixels
-        );
-        assert_eq!(
-            FormatBarDensity::for_width(1_100.0),
+            FormatBarDensity::for_width(900.0),
             FormatBarDensity::NoCustom
         );
         assert_eq!(
@@ -437,21 +348,9 @@ mod tests {
             FormatBarDensity::Compact
         );
 
-        assert!(FormatBarDensity::Full.shows_megapixels());
-        assert!(FormatBarDensity::NoMegapixels.shows_custom_inline());
+        assert!(FormatBarDensity::Full.shows_custom_inline());
         assert!(!FormatBarDensity::NoCustom.shows_custom_inline());
         assert!(FormatBarDensity::NoCustom.shows_quick_ratios());
         assert!(!FormatBarDensity::Compact.shows_quick_ratios());
-    }
-
-    #[test]
-    fn segmented_control_rounds_only_its_outer_corners() {
-        let first = segment_corners(0, 3, 4);
-        let middle = segment_corners(1, 3, 4);
-        let last = segment_corners(2, 3, 4);
-
-        assert_eq!((first.nw, first.sw, first.ne, first.se), (4, 4, 0, 0));
-        assert_eq!(middle, CornerRadius::ZERO);
-        assert_eq!((last.nw, last.sw, last.ne, last.se), (0, 0, 4, 4));
     }
 }

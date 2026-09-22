@@ -26,38 +26,8 @@ Follow KISS, DRY, SOLID principles and clean code naming conventions.
 - Use `ratatui` and `crossterm` for terminal applications/TUIs.
   - Include logical and intuitive mouse controls for all TUIs.
   - **ALWAYS** account for interface scrolling offsets when calculating click locations
-- Use `axum` for creating any web servers or HTTP APIs.
-  - Keep request handlers async, returning `Result<Response, AppError>` to centralize error handling.
-  - Use layered extractors and shared state structs instead of global mutable data.
-  - Add `tower` middleware (timeouts, tracing, compression) for observability and resilience.
-  - Offload CPU-bound work to `tokio::task::spawn_blocking` or background services to avoid blocking the reactor.
 - When reporting errors to the console, use `tracing::error!` or `log::error!` instead of `println!`.
 - If the project involves the creation of images (e.g. PNG/WEBP), you have permission to use the Read tool to verify the rendered images fit the user and application requirements.
-- If designing applications with a web-based front end interface, e.g. compiling to WASM or using `dioxus`:
-  - All deep computation **MUST** occur within Rust processes (i.e. the WASM binary or the `dioxus` app Rust process). **NEVER** use JavaScript for deep computation.
-  - The front-end **MUST** use Pico CSS and vanilla JavaScript. **NEVER** use jQuery or any component-based frameworks such as React.
-  - The front-end should prioritize speed and common HID guidelines.
-  - The app should use adaptive light/dark themes by default, with a toggle to switch the themes.
-  - The typography/theming of the application **MUST** be modern and unique, similar to that of popular single-page web/mobile. **ALWAYS** add an appropriate font for headers and body text. You may reference fonts from Google Fonts.
-  - **NEVER** use the Pico CSS defaults as-is: a separate CSS/SCSS file is encouraged. The design **MUST** logically complement the semantics of the application use case.
-  - **ALWAYS** rebuild the WASM binary if any underlying Rust code that affects it is touched.
-- For data processing:
-  - **ALWAYS** use `polars` instead of other data frame libraries for tabular data manipulation.
-  - If a `polars` dataframe will be printed, **NEVER** simultaneously print the number of entries in the dataframe nor the schema as it is redundant.
-  - **NEVER** ingest more than 10 rows of a data frame at a time. Only analyze subsets of data to avoid overloading your memory context.
-- If using Python to implement Rust code using PyO3/`maturin`:
-  - Rebuild the Python package with `maturin` after finishing all Rust code changes.
-  - **ALWAYS** use `uv` for Python package management and to create a `.venv` if it is not present. **NEVER** use the base system Python installation.
-  - Ensure `.venv` is added to `.gitignore`.
-  - Ensure `ipykernel` and `ipywidgets` is installed in `.venv` for Jupyter Notebook compatability. This should not be in package requirements.
-  - **MUST** keep functions focused on a single responsibility
-  - **NEVER** use mutable objects (lists, dicts) as default argument values
-  - Limit function parameters to 5 or fewer
-  - Return early to reduce nesting
-  - **MUST** use type hints for all function signatures (parameters and return values)
-  - **NEVER** use `Any` type unless absolutely necessary
-  - **MUST** run mypy and resolve all type errors
-  - Use `Optional[T]` or `T | None` for nullable types
 
 ## Code Style and Formatting
 
@@ -67,9 +37,8 @@ Follow KISS, DRY, SOLID principles and clean code naming conventions.
 - **NEVER** use emoji, or unicode that emulates emoji (e.g. ✓, ✗). The only exception is when writing tests and testing the impact of multibyte characters.
 - Use snake_case for functions/variables/modules, PascalCase for types/traits, SCREAMING_SNAKE_CASE for constants
 - Limit line length to 100 characters (rustfmt default)
-- **NEVER** write inline source comments or standalone implementation comments. This prohibits non-documentation `//` comments and all `/* ... */` comments.
-- Make implementation code self-documenting through focused functions, descriptive names, strong types, and explicit error handling.
-- Rust documentation comments using `///` or `//!` are permitted only when required to document a public API contract. They must not narrate implementation details or restate the code.
+- **NEVER** write comments in source files. This prohibits `//` line comments, `/* ... */` block comments, and `///` and `//!` documentation comments, without exception.
+- Make implementation code self-documenting through focused functions, descriptive names, strong types, and explicit error handling. If a fact needs explaining, encode it in a name, a type, or a test rather than in prose.
 
 ## Type System
 
@@ -177,7 +146,6 @@ Follow KISS, DRY, SOLID principles and clean code naming conventions.
 - **MUST** ensure code compiles with no warnings (use `-D warnings` flag in CI, not `#![deny(warnings)]` in source)
 - Use `cargo` for building, testing, and dependency management
 - Use `cargo test` for running tests
-- For projects which build a Python package, **NEVER** build with `cargo build --features python`: this will always fail. Instead, **ALWAYS** use `maturin`.
 - **NEVER** uses the `Explore` tool for `Cargo.lock`: it is large and irrelevant. Read `Cargo.lock` **ONLY** if it's extremely relevant.
 
 ## Before Committing
@@ -186,10 +154,7 @@ Follow KISS, DRY, SOLID principles and clean code naming conventions.
 - [ ] No compiler warnings (`cargo build`)
 - [ ] Clippy passes (`cargo clippy -- -D warnings`)
 - [ ] Code is formatted (`cargo fmt --check`)
-- [ ] If the project creates a Python package and Rust code is touched, rebuild the Python package (`source .venv/bin/activate && maturin develop --release --features python`)
-- [ ] If the project creates a WASM package and Rust code is touched, rebuild the WASM package (`wasm-pack build --target web --out-dir web/pkg`)
-- [ ] Every new or modified public API contract has concise documentation when its semantics are
-      not fully conveyed by its name and types; internal APIs use the narrowest practical visibility
+- [ ] No comments of any kind, including doc comments; internal APIs use the narrowest practical visibility
 - [ ] No commented-out code or debug statements
 - [ ] No hardcoded credentials
 

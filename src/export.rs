@@ -361,7 +361,7 @@ impl Drop for ExportQueue {
 
 pub fn export_image(request: &ExportRequest) -> Result<ExportReceipt, ExportError> {
     validate_crop(&request.source, &request.crop)?;
-    let prepared = prepare_pixels(&request.source, &request.crop, request.options.output_size);
+    let prepared = crop_pixels(&request.source, &request.crop, request.options.output_size);
     let bytes = encode_pixels(&prepared, request.options)?;
     write_new_file(&request.destination, &bytes)?;
 
@@ -395,7 +395,7 @@ fn validate_crop(source: &SourceImage, crop: &CropRect) -> Result<(), ExportErro
     })
 }
 
-fn prepare_pixels(
+pub fn crop_pixels(
     source: &SourceImage,
     crop: &CropRect,
     output_size: Option<OutputSize>,

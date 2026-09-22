@@ -27,12 +27,36 @@ Source pixel coordinates, deterministic naming templates, and non overwriting ou
 
 1. Open one supported image or a folder of images.
 2. Click a quick ratio chip, pick any catalog ratio from All ratios, or type a custom ratio.
-3. Choose a size tier on the rail or Max for the largest crop that fits the source.
-4. Position the crop with the pointer or keyboard.
+3. Choose a size tier on the footer rail or Max for the largest crop that fits the source.
+4. Position the crop with the pointer or keyboard, or double-click x or y in the footer to type an
+   exact source pixel position. Enter applies it, Esc cancels, and text that is not a whole number
+   is rejected with an error. A position past an edge is clamped so the crop stays inside the
+   image, and the footer says so.
 5. Press Space or Enter to export and advance by the configured amount.
-6. Continue through the source or move to the next image in the queue.
+6. Continue through the source or move to the next image in the queue. The chain button next to
+   the footer position locks the crop: while it is linked, the next image keeps the current
+   position and size. When the rectangle does not fit, it slides back inside the image, and if the
+   image is smaller than the crop it shrinks at the same ratio; the load message reports the
+   adjustment.
 
 Folder queues use natural filename ordering and can include nested folders when recursive scanning is enabled. Queue navigation appears only when more than one image is loaded. The File menu and the empty workspace both list the ten most recently opened images and folders; entries that no longer exist are marked and can be removed by clicking them.
+
+Scanning a folder does not block the window. The first image opens as soon as it is found and the
+rest of the folder keeps loading behind it, so the queue total climbs while cropping is already
+under way. The image on screen never changes position in the process; only the reported count
+does. A marker beside the count shows a scan is still running, and opening a different source
+abandons it.
+
+One image, several images, or one folder can also be dropped onto the window. While the pointer
+carries them, the canvas dims and names what the drop will open, so a mistaken drag can be carried
+back out. A single dropped item is scanned exactly as a dialog choice is, and several dropped
+images become one naturally sorted queue without scanning their folder. A drop that mixes images
+with anything else is refused by name and changes nothing.
+
+A source can be typed or pasted instead of chosen through a dialog, from the field on the empty
+workspace or the Source row in Settings. Paths wrapped in quotes or prefixed with ~ are accepted.
+A path that does not exist, or a file that is not a supported image, is reported under the field
+and nothing is opened.
 
 Image decoding runs in the background. The displayed image stays available for dragging,
 scrolling, and capture while another source loads. CropDeck prefetches the next image and then the
@@ -62,9 +86,20 @@ A nominal 2:3 XS preset is 344 by 512 pixels rather than recomputing an unaligne
 
 ## Crop sizing behavior
 
-The format picker shows every catalog ratio in portrait, landscape, and square groups. Size tiers run from XS through XXL, and Max selects the largest ratio locked crop that fits the current source. Oversized tiers remain visible but disabled.
+The format picker shows every catalog ratio in portrait, landscape, and square groups. Size tiers run from XS through XXL, and Max selects the largest ratio locked crop that fits the current source. Tiers larger than the current source are hidden, so the rail only offers sizes that fit.
 
 Changing ratios retains an explicitly selected tier when it fits. If it does not fit, CropDeck uses the largest available tier without forgetting the preference. Magnetic resizing moves continuously, pulls the crop toward nearby catalog sizes, and requires deliberate movement to leave a snapped size.
+
+## Export destination
+
+By default each crop is written beside its source image. The Destination row in Settings accepts a
+typed or pasted folder path, a folder chosen through the dialog, or Use source folder to return to
+the default. A destination that does not exist yet is accepted and created with the first capture.
+An existing file at that path, a missing parent folder, or a relative path is refused and reported
+under the field, leaving the previous destination in place.
+
+Validation runs in the background, so a path on a slow or unreachable network mount leaves that one
+field waiting while the rest of the dialog stays usable.
 
 ## Performance settings
 
@@ -74,10 +109,14 @@ is retained by itself so the active source remains reusable.
 
 ## Controls
 
+Every entry below is the shipped default. All of them can be rebound from Keyboard shortcuts in
+the File menu, so the table describes a fresh installation rather than a fixed map.
+
 | Input | Action |
 | --- | --- |
 | Ctrl + O / Ctrl + Shift + O | Open an image / a folder |
 | Ctrl + , | Open Settings |
+| Ctrl + Shift + K | Open Keyboard shortcuts |
 | Esc | Close a menu, the catalog picker, or a dialog; cancel a crop drag |
 | Arrow keys or W/A/S/D | Move the crop |
 | Shift + movement | Move farther |
@@ -96,7 +135,44 @@ is retained by itself so the active source remains reusable.
 | Ctrl + scroll | Zoom the viewport |
 | Home / End | Move to the top / bottom of the image |
 | Pointer drag inside crop | Move the crop and auto scroll near viewport edges |
+| Double-click footer x or y | Type an exact crop position |
+| Footer chain button | Keep the crop position when switching images |
+| Drop files on the window | Open one image, several images, or one folder |
 | Space + pointer drag or middle drag | Pan the document |
+| Ctrl + C | Copy the current crop to the system clipboard |
+| Ctrl + Shift + R | Reveal the last export in the file manager |
+
+## Keyboard shortcuts
+
+Keyboard shortcuts is a modal in the File menu. It lists every command by group, shows the
+shortcuts bound to each one, and records a replacement when a shortcut is clicked: the next key
+combination is captured, Esc abandons the recording, and Backspace clears the binding. A command
+can hold up to three shortcuts; the plus button adds one and each x removes one. The filter field
+matches command names, group names, and bound shortcuts, so an occupied combination can be traced
+to its owner.
+
+A combination that is already taken is not applied silently. The editor names the command that
+holds it and offers to reassign it or to keep the current one. Reset restores one command, and
+Reset to defaults restores every command after a confirmation. Shortcut changes take effect
+immediately and are stored in the settings file.
+
+Movement, resizing, and zooming keep their modifier variants without separate bindings. Whatever
+Move crop left is bound to, holding Shift moves farther and holding Ctrl moves by one source
+pixel; the same applies to Ctrl with the crop resizing commands. Previous and next preset size,
+and backward ratio cycling, are commands in their own right and can be bound freely.
+
+## Clipboard and file manager
+
+Copy places the current crop on the system clipboard as an image, using the same pixels and the
+same optional output resize as an export, without writing a file. Encoding runs on a background
+worker, so a large crop never stalls the canvas, and the status bar reports the copied dimensions.
+On Linux the clipboard is served by the running application, so a copied crop stays available to
+other programs until CropDeck exits, which is how X11 and Wayland selections work.
+
+Reveal appears in the status bar once a capture has completed and shows that file in the platform
+file manager: Explorer with the file selected on Windows, and on Linux the desktop's file manager
+through the freedesktop ShowItems interface, falling back to opening the containing folder. A
+desktop without either still exports normally; only the reveal is reported as failed.
 
 ## Output behavior
 

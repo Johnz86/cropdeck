@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+description = "CropDeck developer tasks"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.5.51", features = ["derive"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+thiserror = "2.0.20"
+
+[target.'cfg(unix)'.dependencies]
+x11rb = "0.13.2"

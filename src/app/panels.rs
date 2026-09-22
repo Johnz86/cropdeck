@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, FontId, text::LayoutJob};
 
 use crate::config::{RecentSource, SourceKind};
+use crate::shortcuts::ShortcutAction;
 
 use super::format_bar::{FormatBarDensity, bar_button, file_tile};
 use super::workspace::{ZOOM_FACTOR, ZoomMode};
@@ -76,6 +77,7 @@ pub(super) enum SourceAction {
     ForgetRecent(PathBuf),
     ClearRecent,
     Settings,
+    Shortcuts,
     About,
 }
 
@@ -95,7 +97,11 @@ impl CropDeckApp {
                     let capture = ui.add_enabled(
                         self.source.is_some(),
                         bar_button(egui::RichText::new("Capture").strong())
-                            .shortcut_text("Space")
+                            .shortcut_text(
+                                self.config
+                                    .shortcuts()
+                                    .display(ShortcutAction::CaptureAndAdvance),
+                            )
                             .fill(ui.visuals().selection.bg_fill),
                     );
                     if capture
@@ -103,6 +109,18 @@ impl CropDeckApp {
                         .clicked()
                     {
                         self.capture_and_advance();
+                    }
+                    if ui
+                        .add_enabled(
+                            self.can_copy_crop(),
+                            bar_button("Copy").shortcut_text(
+                                self.config.shortcuts().display(ShortcutAction::CopyCrop),
+                            ),
+                        )
+                        .on_hover_text("Copy the crop to the clipboard")
+                        .clicked()
+                    {
+                        self.copy_crop();
                     }
                 });
             });
@@ -120,6 +138,7 @@ impl CropDeckApp {
                 self.recent_existence.clear();
             }
             SourceAction::Settings => self.settings_open = true,
+            SourceAction::Shortcuts => self.shortcut_editor.open(),
             SourceAction::About => self.about_open = true,
         }
     }
@@ -130,11 +149,22 @@ impl CropDeckApp {
         egui::Popup::menu(&trigger).show(|ui| {
             ui.set_min_width(220.0);
             for (label, shortcut, candidate) in [
-                ("Open image...", "Ctrl+O", SourceAction::OpenImage),
-                ("Open folder...", "Ctrl+Shift+O", SourceAction::OpenFolder),
+                (
+                    "Open image...",
+                    ShortcutAction::OpenImage,
+                    SourceAction::OpenImage,
+                ),
+                (
+                    "Open folder...",
+                    ShortcutAction::OpenFolder,
+                    SourceAction::OpenFolder,
+                ),
             ] {
                 if ui
-                    .add(egui::Button::new(label).shortcut_text(shortcut))
+                    .add(
+                        egui::Button::new(label)
+                            .shortcut_text(self.config.shortcuts().display(shortcut)),
+                    )
                     .clicked()
                 {
                     action = Some(candidate);
@@ -147,10 +177,28 @@ impl CropDeckApp {
             });
             ui.separator();
             if ui
-                .add(egui::Button::new("Settings...").shortcut_text("Ctrl+,"))
+                .add(
+                    egui::Button::new("Settings...").shortcut_text(
+                        self.config
+                            .shortcuts()
+                            .display(ShortcutAction::OpenSettings),
+                    ),
+                )
                 .clicked()
             {
                 action = Some(SourceAction::Settings);
+            }
+            if ui
+                .add(
+                    egui::Button::new("Keyboard shortcuts...").shortcut_text(
+                        self.config
+                            .shortcuts()
+                            .display(ShortcutAction::OpenShortcuts),
+                    ),
+                )
+                .clicked()
+            {
+                action = Some(SourceAction::Shortcuts);
             }
             if ui.button("About CropDeck").clicked() {
                 action = Some(SourceAction::About);
@@ -224,7 +272,13 @@ impl CropDeckApp {
                 if self.queue.as_ref().is_some_and(|queue| queue.len() > 1) {
                     if ui
                         .add_enabled(self.can_navigate(false), egui::Button::new("Previous"))
-                        .on_hover_text("Previous source (Q)")
+                        .on_hover_text(hint(
+                            "Previous source",
+                            &self
+                                .config
+                                .shortcuts()
+                                .display(ShortcutAction::PreviousSource),
+                        ))
                         .clicked()
                     {
                         self.navigate(false);
@@ -232,7 +286,10 @@ impl CropDeckApp {
                     ui.label(self.queue_position());
                     if ui
                         .add_enabled(self.can_navigate(true), egui::Button::new("Next"))
-                        .on_hover_text("Next source (E)")
+                        .on_hover_text(hint(
+                            "Next source",
+                            &self.config.shortcuts().display(ShortcutAction::NextSource),
+                        ))
                         .clicked()
                     {
                         self.navigate(true);
@@ -244,7 +301,8 @@ impl CropDeckApp {
                     ui.separator();
                 }
                 if let Some(crop) = self.workspace.crop {
-                    ui.monospace(format!("x {}  y {}", crop.x(), crop.y()));
+                    self.crop_position_controls(ui, crop);
+                    self.size_rail(ui, crop);
                     ui.separator();
                 }
                 if !self.workspace.history.is_empty() {
@@ -252,16 +310,30 @@ impl CropDeckApp {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.source.is_some() {
-                        if ui.button("+").on_hover_text("Zoom in (+)").clicked() {
+                        let zoom_in_hint = hint(
+                            "Zoom in",
+                            &self.config.shortcuts().display(ShortcutAction::ZoomIn),
+                        );
+                        if ui.button("+").on_hover_text(zoom_in_hint).clicked() {
                             self.zoom_from_toolbar(ZOOM_FACTOR, viewport_available_width);
                         }
                         ui.label(self.zoom_label(viewport_available_width));
-                        if ui.button("-").on_hover_text("Zoom out (-)").clicked() {
+                        let zoom_out_hint = hint(
+                            "Zoom out",
+                            &self.config.shortcuts().display(ShortcutAction::ZoomOut),
+                        );
+                        if ui.button("-").on_hover_text(zoom_out_hint).clicked() {
                             self.zoom_from_toolbar(1.0 / ZOOM_FACTOR, viewport_available_width);
                         }
                         if ui
                             .button("Fit width")
-                            .on_hover_text("Fit the image width (F)")
+                            .on_hover_text(hint(
+                                "Fit the image width",
+                                &self
+                                    .config
+                                    .shortcuts()
+                                    .display(ShortcutAction::FitImageWidth),
+                            ))
                             .clicked()
                         {
                             self.workspace.zoom = ZoomMode::FitWidth;
@@ -272,6 +344,20 @@ impl CropDeckApp {
                         ui.add(egui::Spinner::new().size(12.0));
                         ui.weak(format!("scanning {}", display_file_name(&scan.root)));
                         ui.separator();
+                    }
+                    if self.can_reveal_export()
+                        && ui
+                            .button("Reveal")
+                            .on_hover_text(hint(
+                                "Show the last export in the file manager",
+                                &self
+                                    .config
+                                    .shortcuts()
+                                    .display(ShortcutAction::RevealLastExport),
+                            ))
+                            .clicked()
+                    {
+                        self.reveal_last_export();
                     }
                     if self.pending_exports > 0 {
                         ui.weak(format!("exporting {}", self.pending_exports));
@@ -290,6 +376,13 @@ impl CropDeckApp {
             });
         });
     }
+}
+
+pub(super) fn hint(description: &str, shortcut: &str) -> String {
+    if shortcut.is_empty() {
+        return description.to_owned();
+    }
+    format!("{description} ({shortcut})")
 }
 
 pub(super) fn recent_entry_detail(
@@ -374,6 +467,12 @@ mod tests {
 
     fn parent() -> String {
         String::from("/comics")
+    }
+
+    #[test]
+    fn hints_name_a_shortcut_only_when_one_is_bound() {
+        assert_eq!(hint("Zoom in", "Plus"), "Zoom in (Plus)");
+        assert_eq!(hint("Zoom in", ""), "Zoom in");
     }
 
     #[test]

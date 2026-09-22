@@ -8,17 +8,9 @@ The items below are intentionally not implemented. Each should be delivered inde
 
 ## Near term workflow improvements
 
-### Drag and drop
-
-The application currently opens sources through native dialogs or the recent source command. A future change can accept one image, multiple images, or one directory through native file drop events. Queue construction must reuse ImageQueue, preserve natural sorting, reject mixed unsupported inputs clearly, and include unit tested path classification separate from egui event handling.
-
 ### Session restoration
 
 AppConfig remembers the ten most recent sources but not the queue index, crop, scroll position, or completed history. A resumable session should use a versioned data model, validate source identity and bounds, recover safely from missing files, and avoid embedding image data. Restoration must never overwrite the current settings file with partially serialized state.
-
-### Configurable shortcuts
-
-The current shortcut map is fixed. Remapping requires a typed command model, conflict detection, platform aware modifier display, persistence, reset to default behavior, and a discoverable editor. Text input and modal focus must continue to suppress workspace commands.
 
 ### Center crop horizontally
 
@@ -28,13 +20,9 @@ Implement the geometry on CropRect in crop.rs and keep shortcut and view orchest
 
 ### Additional crop placement commands
 
-Still unimplemented placement commands include snapping to source edges, duplicating the previous crop position, and moving by exactly one crop height with configurable overlap. Each is an independent task and must place its source coordinate geometry on CropRect rather than in UI code.
+Still unimplemented placement commands include snapping to source edges and moving by exactly one crop height with configurable overlap. Each is an independent task and must place its source coordinate geometry on CropRect rather than in UI code.
 
 ## Output integrations
-
-### Clipboard and file manager actions
-
-Potential additions are copying the current crop to the system clipboard and revealing a completed export in the platform file manager. Both are explicit user actions. Platform behavior must be isolated behind small interfaces and failures must not affect export completion.
 
 ### Coordinate manifests
 

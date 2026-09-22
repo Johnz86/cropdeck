@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::crop::AspectRatio;
 use crate::naming::FilenameTemplate;
+use crate::shortcuts::ShortcutBindings;
 
 const CONFIG_FILE_NAME: &str = "config.json";
 const DEFAULT_FILENAME_TEMPLATE: &str = "{source}_{index:03}";
@@ -208,6 +209,7 @@ pub struct AppConfig {
     capture_advance_percent: u8,
     cache_budget_megabytes: u32,
     recent_sources: Vec<RecentSource>,
+    shortcuts: ShortcutBindings,
 
     #[serde(skip)]
     revision: u64,
@@ -221,6 +223,7 @@ impl PartialEq for AppConfig {
             && self.capture_advance_percent == other.capture_advance_percent
             && self.cache_budget_megabytes == other.cache_budget_megabytes
             && self.recent_sources == other.recent_sources
+            && self.shortcuts == other.shortcuts
     }
 }
 
@@ -285,6 +288,15 @@ impl AppConfig {
         validate_cache_budget(megabytes)?;
         self.cache_budget_megabytes = megabytes;
         Ok(())
+    }
+
+    #[must_use]
+    pub const fn shortcuts(&self) -> &ShortcutBindings {
+        &self.shortcuts
+    }
+
+    pub fn shortcuts_mut(&mut self) -> &mut ShortcutBindings {
+        &mut self.shortcuts
     }
 
     #[must_use]
@@ -391,6 +403,7 @@ impl Default for AppConfig {
             capture_advance_percent: 85,
             cache_budget_megabytes: 1_024,
             recent_sources: Vec::new(),
+            shortcuts: ShortcutBindings::default(),
             revision: 0,
         }
     }
@@ -602,6 +615,8 @@ fn replace_file(temporary_path: &Path, path: &Path) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shortcuts::{Chord, ChordModifiers, ShortcutAction};
+    use eframe::egui::Key;
 
     #[test]
     fn defaults_are_valid_and_generation_friendly() {
@@ -633,6 +648,29 @@ mod tests {
 
         assert_eq!(actual, expected);
         assert_eq!(actual.export().output_size(), Some((720, 1280)));
+    }
+
+    #[test]
+    fn customized_shortcuts_survive_a_save_and_load_cycle() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("settings.json");
+        let mut expected = AppConfig::default();
+        let chord = Chord::new(Key::F8, ChordModifiers::COMMAND);
+        expected
+            .shortcuts_mut()
+            .unbind_collisions(ShortcutAction::CaptureAndAdvance, chord);
+        expected
+            .shortcuts_mut()
+            .assign(ShortcutAction::CaptureAndAdvance, Some(0), chord);
+
+        expected.save_to(&path).expect("config should save");
+        let actual = AppConfig::load_from(&path).expect("config should load");
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual.shortcuts().action_for(chord, false),
+            Some(ShortcutAction::CaptureAndAdvance)
+        );
     }
 
     #[test]

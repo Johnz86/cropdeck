@@ -162,12 +162,15 @@ impl CropDeckApp {
         for outcome in outcomes {
             self.pending_exports = self.pending_exports.saturating_sub(1);
             match outcome {
-                Ok(receipt) => self.notify(format!(
-                    "Exported {} ({}x{})",
-                    display_file_name(receipt.destination()),
-                    receipt.width(),
-                    receipt.height()
-                )),
+                Ok(receipt) => {
+                    self.notify(format!(
+                        "Exported {} ({}x{})",
+                        display_file_name(receipt.destination()),
+                        receipt.width(),
+                        receipt.height()
+                    ));
+                    self.last_export = Some(receipt.destination().to_path_buf());
+                }
                 Err(error) => {
                     if matches!(
                         error,

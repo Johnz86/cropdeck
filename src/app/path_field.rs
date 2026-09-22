@@ -271,6 +271,10 @@ fn parent_outcome(target: &Path, parent_facts: PathFacts) -> PathFieldState {
 mod tests {
     use super::*;
 
+    fn absolute(relative: &str) -> PathBuf {
+        std::env::temp_dir().join(relative)
+    }
+
     fn facts(exists: bool, is_directory: bool) -> PathFacts {
         PathFacts {
             exists,
@@ -343,7 +347,7 @@ mod tests {
     #[test]
     fn destination_accepts_an_existing_directory() {
         assert!(matches!(
-            destination_outcome(Path::new("/tmp/exports"), facts(true, true)),
+            destination_outcome(&absolute("exports"), facts(true, true)),
             DestinationOutcome::Resolved(PathFieldState::Accepted { .. })
         ));
     }
@@ -351,8 +355,9 @@ mod tests {
     #[test]
     fn destination_rejects_an_existing_file_and_relative_paths() {
         assert!(matches!(
-            destination_outcome(Path::new("/tmp/exports.txt"), facts(true, false)),
-            DestinationOutcome::Resolved(state) if state.is_rejected()
+            destination_outcome(&absolute("exports.txt"), facts(true, false)),
+            DestinationOutcome::Resolved(state)
+                if state.note() == "a file already exists at this path"
         ));
         assert!(matches!(
             destination_outcome(Path::new("exports"), facts(false, false)),
@@ -363,8 +368,8 @@ mod tests {
     #[test]
     fn destination_defers_to_its_parent_when_missing() {
         assert!(matches!(
-            destination_outcome(Path::new("/tmp/exports/chapter"), facts(false, false)),
-            DestinationOutcome::NeedsParent(parent) if parent == Path::new("/tmp/exports")
+            destination_outcome(&absolute("exports/chapter"), facts(false, false)),
+            DestinationOutcome::NeedsParent(parent) if parent == absolute("exports")
         ));
     }
 

@@ -292,6 +292,15 @@ impl CropRect {
     }
 
     #[must_use]
+    pub fn positioned_at(self, x: i64, y: i64, source: SourceSize) -> Self {
+        self.moved_by(
+            x.saturating_sub(i64::from(self.x)),
+            y.saturating_sub(i64::from(self.y)),
+            source,
+        )
+    }
+
+    #[must_use]
     pub fn resized_to_width(
         self,
         requested_width: u32,
@@ -488,6 +497,51 @@ mod tests {
 
         assert_eq!((upper_left.x(), upper_left.y()), (0, 0));
         assert_eq!((lower_right.x(), lower_right.y()), (60, 150));
+    }
+
+    #[test]
+    fn positioning_places_the_origin_exactly_or_clamps_it_inside_the_source() {
+        let source = SourceSize::new(1_000, 3_000).expect("source should be valid");
+        let crop = CropRect::new(100, 200, 400, 600, source).expect("crop should fit");
+
+        let exact = crop.positioned_at(250, 1_500, source);
+        let past_edges = crop.positioned_at(i64::MAX, i64::MAX, source);
+        let before_edges = crop.positioned_at(i64::MIN, -5, source);
+
+        assert_eq!((exact.x(), exact.y()), (250, 1_500));
+        assert_eq!((exact.width(), exact.height()), (400, 600));
+        assert_eq!((past_edges.x(), past_edges.y()), (600, 2_400));
+        assert_eq!((before_edges.x(), before_edges.y()), (0, 0));
+    }
+
+    #[test]
+    fn carried_crop_keeps_its_rectangle_when_the_next_source_fits_it() {
+        let source = SourceSize::new(1_200, 5_000).expect("source should be valid");
+
+        let crop = CropRect::with_aspect_ratio(300, 1_200, 512, AspectRatio::SQUARE, source);
+
+        assert_eq!(
+            (crop.x(), crop.y(), crop.width(), crop.height()),
+            (300, 1_200, 512, 512)
+        );
+    }
+
+    #[test]
+    fn carried_crop_slides_inside_a_shorter_source_and_shrinks_for_a_smaller_one() {
+        let shorter = SourceSize::new(1_024, 1_000).expect("source should be valid");
+        let tiny = SourceSize::new(400, 300).expect("source should be valid");
+
+        let slid = CropRect::with_aspect_ratio(300, 1_200, 512, AspectRatio::SQUARE, shorter);
+        let shrunk = CropRect::with_aspect_ratio(300, 1_200, 512, AspectRatio::SQUARE, tiny);
+
+        assert_eq!(
+            (slid.x(), slid.y(), slid.width(), slid.height()),
+            (300, 488, 512, 512)
+        );
+        assert_eq!(
+            (shrunk.x(), shrunk.y(), shrunk.width(), shrunk.height()),
+            (100, 0, 300, 300)
+        );
     }
 
     #[test]

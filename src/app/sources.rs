@@ -70,6 +70,27 @@ impl CropDeckApp {
         }
     }
 
+    pub(super) fn open_image_set(&mut self, mut paths: Vec<PathBuf>) {
+        sort_paths_naturally(&mut paths);
+        let Some(queue) = ImageQueue::from_batch(paths) else {
+            return;
+        };
+        if let Some(filesystem) = self.filesystem.as_ref() {
+            filesystem.cancel_scan();
+        }
+        let count = queue.len();
+        self.scan = None;
+        self.pending_paths.clear();
+        self.source = None;
+        self.texture = None;
+        self.awaited = None;
+        self.capture_plan = None;
+        self.source_field.set_committed(None);
+        self.queue = Some(queue);
+        self.request_current();
+        self.notify(format!("{count} dropped images"));
+    }
+
     pub(super) fn forget_recent_source(&mut self, path: &Path) {
         self.config.remove_recent_source(path);
         self.recent_existence.forget(path);
@@ -99,6 +120,9 @@ impl CropDeckApp {
                 FilesystemEvent::Probed { path, facts } => self.apply_probe(&path, facts),
                 FilesystemEvent::DialogClosed { kind, path } => {
                     self.apply_dialog_result(kind, path);
+                }
+                FilesystemEvent::Revealed { path, outcome } => {
+                    self.apply_reveal_result(path, outcome);
                 }
             }
         }
@@ -317,19 +341,38 @@ impl CropDeckApp {
         };
         let source_size = SourceSize::new(dimensions.width(), dimensions.height())
             .expect("decoded images always have non-zero dimensions");
-        self.workspace.crop = Some(CropRect::with_aspect_ratio(
-            0,
-            0,
-            source_size.width(),
-            self.config.aspect_ratio(),
-            source_size,
-        ));
-        self.workspace.effective_ratio = self.config.aspect_ratio();
+        let locked_crop = self
+            .workspace
+            .crop
+            .filter(|_crop| self.workspace.location_locked);
+        match locked_crop {
+            Some(previous) => {
+                self.workspace.crop = Some(CropRect::with_aspect_ratio(
+                    previous.x(),
+                    previous.y(),
+                    previous.width(),
+                    self.workspace.effective_ratio,
+                    source_size,
+                ));
+                self.workspace.requested_scroll_y = None;
+                self.workspace.ensure_crop_visible = true;
+            }
+            None => {
+                self.workspace.crop = Some(CropRect::with_aspect_ratio(
+                    0,
+                    0,
+                    source_size.width(),
+                    self.config.aspect_ratio(),
+                    source_size,
+                ));
+                self.workspace.effective_ratio = self.config.aspect_ratio();
+                self.workspace.requested_scroll_y = Some(0.0);
+                self.workspace.ensure_crop_visible = false;
+            }
+        }
         self.workspace.history.clear();
         self.workspace.zoom = ZoomMode::FitWidth;
         self.workspace.drag = None;
-        self.workspace.requested_scroll_y = Some(0.0);
-        self.workspace.ensure_crop_visible = false;
         self.workspace.resize_wheel = ResizeWheelState::default();
         self.next_export_index = 1;
         self.source = Some(source);
@@ -337,7 +380,14 @@ impl CropDeckApp {
         if self.size_preference != CropSizePreference::Automatic {
             self.apply_ratio(self.config.aspect_ratio());
         }
-        self.notify(format!("Loaded {}", display_file_name(&path)));
+        let name = display_file_name(&path);
+        if locked_crop.is_some_and(|previous| self.workspace.crop != Some(previous)) {
+            self.notify(format!(
+                "Loaded {name}; the locked crop was adjusted to fit the image"
+            ));
+        } else {
+            self.notify(format!("Loaded {name}"));
+        }
     }
 
     fn prefetch_neighbours(&mut self) {
