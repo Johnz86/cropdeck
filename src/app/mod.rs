@@ -7,6 +7,7 @@ mod interaction;
 mod output_actions;
 mod panels;
 mod path_field;
+mod shortcut_editor;
 mod shortcuts;
 mod sources;
 mod workspace;
@@ -29,6 +30,7 @@ use crate::viewport::TiledTexture;
 use self::capture::CapturePlan;
 use self::panels::RecentExistence;
 use self::path_field::PathField;
+use self::shortcut_editor::ShortcutEditor;
 use self::shortcuts::InputFocus;
 use self::workspace::WorkspaceState;
 
@@ -113,6 +115,7 @@ pub struct CropDeckApp {
     last_export: Option<PathBuf>,
     source_field: PathField,
     destination_field: PathField,
+    shortcut_editor: ShortcutEditor,
 }
 
 impl CropDeckApp {
@@ -181,6 +184,7 @@ impl CropDeckApp {
             last_export: None,
             source_field: PathField::default(),
             destination_field,
+            shortcut_editor: ShortcutEditor::default(),
         };
         if let Some(notice) = startup_notice {
             app.notify(notice);
@@ -200,7 +204,10 @@ impl CropDeckApp {
     }
 
     fn input_focus(&self, context: &egui::Context) -> InputFocus {
-        InputFocus::current(context, self.settings_open || self.about_open)
+        InputFocus::current(
+            context,
+            self.settings_open || self.about_open || self.shortcut_editor.is_open(),
+        )
     }
 }
 
@@ -220,6 +227,9 @@ impl eframe::App for CropDeckApp {
         }
         if self.about_open {
             self.about_dialog(&context);
+        }
+        if self.shortcut_editor.is_open() {
+            self.shortcut_dialog(&context);
         }
     }
 

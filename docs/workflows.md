@@ -102,10 +102,14 @@ is retained by itself so the active source remains reusable.
 
 ## Controls
 
+Every entry below is the shipped default. All of them can be rebound from Keyboard shortcuts in
+the File menu, so the table describes a fresh installation rather than a fixed map.
+
 | Input | Action |
 | --- | --- |
 | Ctrl + O / Ctrl + Shift + O | Open an image / a folder |
 | Ctrl + , | Open Settings |
+| Ctrl + Shift + K | Open Keyboard shortcuts |
 | Esc | Close a menu, the catalog picker, or a dialog; cancel a crop drag |
 | Arrow keys or W/A/S/D | Move the crop |
 | Shift + movement | Move farther |
@@ -128,6 +132,25 @@ is retained by itself so the active source remains reusable.
 | Space + pointer drag or middle drag | Pan the document |
 | Ctrl + C | Copy the current crop to the system clipboard |
 | Ctrl + Shift + R | Reveal the last export in the file manager |
+
+## Keyboard shortcuts
+
+Keyboard shortcuts is a modal in the File menu. It lists every command by group, shows the
+shortcuts bound to each one, and records a replacement when a shortcut is clicked: the next key
+combination is captured, Esc abandons the recording, and Backspace clears the binding. A command
+can hold up to three shortcuts; the plus button adds one and each x removes one. The filter field
+matches command names, group names, and bound shortcuts, so an occupied combination can be traced
+to its owner.
+
+A combination that is already taken is not applied silently. The editor names the command that
+holds it and offers to reassign it or to keep the current one. Reset restores one command, and
+Reset to defaults restores every command after a confirmation. Shortcut changes take effect
+immediately and are stored in the settings file.
+
+Movement, resizing, and zooming keep their modifier variants without separate bindings. Whatever
+Move crop left is bound to, holding Shift moves farther and holding Ctrl moves by one source
+pixel; the same applies to Ctrl with the crop resizing commands. Previous and next preset size,
+and backward ratio cycling, are commands in their own right and can be bound freely.
 
 ## Clipboard and file manager
 

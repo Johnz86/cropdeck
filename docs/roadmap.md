@@ -12,10 +12,6 @@ The items below are intentionally not implemented. Each should be delivered inde
 
 AppConfig remembers the ten most recent sources but not the queue index, crop, scroll position, or completed history. A resumable session should use a versioned data model, validate source identity and bounds, recover safely from missing files, and avoid embedding image data. Restoration must never overwrite the current settings file with partially serialized state.
 
-### Configurable shortcuts
-
-The current shortcut map is fixed. Remapping requires a typed command model, conflict detection, platform aware modifier display, persistence, reset to default behavior, and a discoverable editor. Text input and modal focus must continue to suppress workspace commands.
-
 ### Center crop horizontally
 
 Add an unmodified C command and a compact pointer accessible footer action to center the current crop within the source width. The source coordinate result sets x to half the unused source width. When that width is odd, the extra pixel remains on the right. The command preserves y, crop dimensions, nominal and effective ratios, selected size preference, resize snapping state, history, zoom, and export state. It does nothing when no crop is loaded, while a modal or text field owns keyboard input, or while a pointer drag is active. The result must be brought into view.

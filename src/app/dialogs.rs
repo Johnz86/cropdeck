@@ -11,7 +11,7 @@ use super::path_field::{PathField, PathFieldState};
 const DIALOG_WIDTH: f32 = 460.0;
 const PATH_BUTTON_AREA: f32 = 210.0;
 
-fn dialog_footer(ui: &mut egui::Ui) -> bool {
+pub(super) fn dialog_footer(ui: &mut egui::Ui) -> bool {
     ui.separator();
     ui.horizontal(|ui| {
         ui.weak("Esc closes");

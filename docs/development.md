@@ -17,7 +17,8 @@ images and folders, installs queues, and drives the loader; file_drop.rs classif
 dropped paths and paints the drop overlay; crop_commands.rs maps ratio, move,
 resize, and snap commands onto crop geometry and resolves catalog sizes; capture.rs submits
 exports and polls their results; output_actions.rs copies the crop to the clipboard and reveals
-the last export; shortcuts.rs routes keyboard input; panels.rs draws the toolbar,
+the last export; shortcuts.rs resolves bound commands from keyboard input and runs them;
+shortcut_editor.rs draws the shortcut modal; panels.rs draws the toolbar,
 File menu, recent entries, and status bar; format_bar.rs draws the docked ratio chips, catalog
 picker, size rail, and custom fields; dialogs.rs draws the settings and about modals, including the editable source and destination path
 rows; path_field.rs normalizes typed or pasted paths and resolves them against probe results;
@@ -147,11 +148,21 @@ state such as viewport visibility.
 
 ## Shortcut allocation
 
-The fixed shortcuts currently occupy arrows, W/A/S/D, Q/E, Space, Enter, F, R, number keys 1
-through 9, brackets, Home, End, Plus, and Minus, together with Shift and Ctrl variants documented
-in the controls table of workflows.md. Before assigning a key, inspect both that table and
-handle_shortcuts in src/app/shortcuts.rs. Ctrl+C copies the crop and Ctrl+Shift+R reveals the
-last export; unmodified C stays free for the centering command on the roadmap.
+Commands and their default chords live in one table, SHORTCUTS in src/shortcuts.rs, which also
+supplies the editor labels, grouping, and matching rules. A new command is a new entry in that
+table, a new ShortcutAction variant in the same order, and one arm in run_shortcut in
+src/app/shortcuts.rs; nothing else enumerates commands. The default map is asserted to be free of
+collisions, so a new default must not overlap an existing one. The defaults occupy arrows,
+W/A/S/D, Q/E, Space, Enter, F, R, number keys 1 through 9, brackets, Home, End, Plus, Minus, and
+the Ctrl combinations listed in the controls table of workflows.md; unmodified C stays free for
+the centering command on the roadmap.
+
+A command declares the modifiers its binding ignores. Movement ignores Ctrl and Shift because they
+select the step size, crop resizing ignores Ctrl for the same reason, and zooming ignores Shift so
+that both Plus and Shift+Equals reach it. Collision detection accounts for those free modifiers, so
+Shift+bracket can belong to a different command than bracket. A command that should react to a held
+key must set repeats; Ctrl+C never arrives as a key event on winit, so the clipboard event is
+translated into the Ctrl+C chord before matching.
 
 ## Development workflow
 

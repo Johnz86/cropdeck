@@ -10,4 +10,5 @@ pub mod image_io;
 pub mod loader;
 pub mod naming;
 pub mod presets;
+pub mod shortcuts;
 pub mod viewport;

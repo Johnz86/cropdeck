@@ -53,8 +53,9 @@ and it runs on its own worker because resizing a crop to output dimensions is La
 does not belong in a frame. A failed copy touches no export state.
 
 Copy is routed from egui's Copy event rather than from a Ctrl+C key press, because egui-winit
-translates the platform copy combination into that event and never delivers the key itself. That
-also keeps the binding correct on any platform whose copy chord differs.
+translates the platform copy combination into that event and never delivers the key itself. The
+shortcut layer therefore turns that event back into a Ctrl+C chord before matching, so the copy
+command is bound and rebound like every other command.
 
 The worker holds one long lived clipboard handle. On X11 the last dropped `arboard` handle tears
 down the selection owner and hands the data to a clipboard manager if one exists, so a handle
@@ -222,13 +223,15 @@ the chips into a single picker button showing the current ratio. The rail and Ca
 collapse.
 
 The first toolbar item is a File menu with Open image, Open folder, an Open recent submenu, Settings,
-and About. Recent entries carry the file name, parent folder, and image count for folders, and
+Keyboard shortcuts, and About. Recent entries carry the file name, parent folder, and image count for folders, and
 missing entries are marked rather than silently dropped. Capture is the single primary action and
 shows its key. With no image open the same open actions and recent list are drawn in the empty
 workspace.
 
-Settings and About use egui's modal container so they dim the canvas, block workspace input, and
-close on Esc, the backdrop, or Close. Filename template errors are shown inline in the dialog.
+Settings, Keyboard shortcuts, and About use egui's modal container so they dim the canvas, block
+workspace input, and close on Esc, the backdrop, or Close. Filename template errors are shown
+inline in the dialog. Menu items and toolbar buttons read their shortcut text from the current
+bindings rather than from literal strings, so a rebound command is labeled correctly everywhere.
 
 The footer is a status bar: queue navigation, file name, crop position, and capture count on the
 left; zoom controls and the latest message on the right. Informational messages expire after four
@@ -241,6 +244,27 @@ Input focus is resolved once per frame into canvas, text field, menu, or modal. 
 modals suppress workspace shortcuts; a modal also suppresses wheel zoom. An open menu keeps only
 arrows, Enter, and Esc; any other workspace key closes the menu and runs, so a capture is never
 lost to an open menu. Esc during a pointer drag restores the crop to where the drag began.
+
+Keyboard input is matched against a stored binding map rather than against literal keys. One table
+declares every command with its group, its editor label, its default chords, the modifiers its
+binding ignores, and whether it accepts key repeats; the command enum indexes that table, so
+adding a command cannot leave defaults, labels, or persistence behind. Matched events are removed
+from the frame's event queue exactly as the previous consume_key calls removed them, so no widget
+sees a key that ran a command.
+
+Ignored modifiers keep one binding per direction while preserving the modifier variants. Movement
+ignores Ctrl and Shift because those choose one, ten, or fifty source pixels, crop resizing ignores
+Ctrl, and zooming ignores Shift. Collision detection compares chords after removing the ignored
+modifiers of both commands, which is why Shift+bracket can remain a separate command from bracket
+while Ctrl+arrow cannot be taken from movement.
+
+The editor records a chord instead of parsing typed text. While recording, every key and text event
+is drained before any widget runs, so the filter field cannot swallow the recording and Esc cancels
+it instead of closing the modal. A chord that belongs to another command is held as a pending
+assignment and applied only when the user chooses to reassign it, which keeps the map collision
+free at all times. Bindings are stored by command name and chord name, and a stored file that names
+an unknown command, an unparsable chord, or a collision loses only the affected entries: the rest of
+the settings file survives, and anything missing falls back to its default.
 
 The catalog deliberately separates presentation from crop geometry:
 

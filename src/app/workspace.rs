@@ -3,6 +3,7 @@ use std::time::Instant;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 use crate::crop::{AspectRatio, CropRect, SourceSize};
+use crate::shortcuts::ShortcutAction;
 use crate::viewport::{SourceRect, ViewportTransform};
 
 use super::interaction::{CropDrag, WorkspaceInteraction, interact_with_workspace};
@@ -165,13 +166,22 @@ impl CropDeckApp {
             ui.weak("JPEG, PNG, and WebP sources are supported.");
             ui.add_space(16.0);
             for (label, shortcut, candidate) in [
-                ("Open image...", "Ctrl+O", SourceAction::OpenImage),
-                ("Open folder...", "Ctrl+Shift+O", SourceAction::OpenFolder),
+                (
+                    "Open image...",
+                    ShortcutAction::OpenImage,
+                    SourceAction::OpenImage,
+                ),
+                (
+                    "Open folder...",
+                    ShortcutAction::OpenFolder,
+                    SourceAction::OpenFolder,
+                ),
             ] {
                 if ui
                     .add_sized(
                         LAUNCHER_BUTTON_SIZE,
-                        egui::Button::new(label).shortcut_text(shortcut),
+                        egui::Button::new(label)
+                            .shortcut_text(self.config.shortcuts().display(shortcut)),
                     )
                     .clicked()
                 {
