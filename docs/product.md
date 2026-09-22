@@ -8,7 +8,7 @@ The core workflow is to open a source or folder, position a ratio constrained cr
 
 ## Current product
 
-CropDeck accepts JPEG, PNG, and WebP sources and exports PNG, JPEG, or lossy WebP. Folder sources are naturally sorted and can be scanned recursively. Images open at native resolution and scale down only when wider than the viewport. Only the tiles near the viewport are resident on the GPU, so source height does not limit what can be opened.
+CropDeck accepts JPEG, PNG, and WebP sources and exports PNG, JPEG, or lossy WebP. Sources arrive from a native dialog, a typed or pasted path, a recent entry, or a drop onto the window. Folder sources are naturally sorted and can be scanned recursively. Images open at native resolution and scale down only when wider than the viewport. Only the tiles near the viewport are resident on the GPU, so source height does not limit what can be opened.
 
 The workspace keeps crop geometry in source pixels. Users can move the crop with the keyboard or pointer, trigger progressive edge scrolling while dragging, pan the document, zoom the viewport, and capture without blocking the interface. Completed crops remain visible as indexed history overlays.
 

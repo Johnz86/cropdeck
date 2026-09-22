@@ -8,10 +8,6 @@ The items below are intentionally not implemented. Each should be delivered inde
 
 ## Near term workflow improvements
 
-### Drag and drop
-
-The application currently opens sources through native dialogs or the recent source command. A future change can accept one image, multiple images, or one directory through native file drop events. Queue construction must reuse ImageQueue, preserve natural sorting, reject mixed unsupported inputs clearly, and include unit tested path classification separate from egui event handling.
-
 ### Session restoration
 
 AppConfig remembers the ten most recent sources but not the queue index, crop, scroll position, or completed history. A resumable session should use a versioned data model, validate source identity and bounds, recover safely from missing files, and avoid embedding image data. Restoration must never overwrite the current settings file with partially serialized state.

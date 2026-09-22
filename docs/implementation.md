@@ -109,6 +109,23 @@ configuration revision counter, so directory creation and template parsing happe
 and source pair instead of on every keypress. `AppConfig` compares persisted fields only, because
 the counter is in-memory bookkeeping and would otherwise make identical settings compare unequal.
 
+### Drag and drop
+
+Drop classification is a pure function over the dropped paths, so it is unit tested without an egui
+context and shares its result with the hover overlay. It performs no filesystem call, which keeps
+the invariant above intact while the overlay repaints on every pointer motion of a drag.
+
+A single dropped item is therefore handed to the scan worker unclassified. The worker already
+distinguishes a directory from an image and already reports an unusable path, so inspecting it on
+the UI thread would duplicate that logic and stat a path that may sit on an unreachable mount. Only
+a multiple item drop is classified up front, from filename extensions alone, and one unsupported
+item rejects the whole drop by name rather than silently opening the remainder.
+
+Several dropped images build an ImageQueue directly instead of scanning their folder, because the
+drop is itself the selection; scanning would add images the user did not choose. Such a queue has
+no single source path, so it is not added to recent sources and it clears the Source field rather
+than claiming a folder that was never opened.
+
 ### Image load path
 
 Decoded sources retain RGB8 or RGBA8 pixels according to their native alpha requirements. JPEG

@@ -70,6 +70,27 @@ impl CropDeckApp {
         }
     }
 
+    pub(super) fn open_image_set(&mut self, mut paths: Vec<PathBuf>) {
+        sort_paths_naturally(&mut paths);
+        let Some(queue) = ImageQueue::from_batch(paths) else {
+            return;
+        };
+        if let Some(filesystem) = self.filesystem.as_ref() {
+            filesystem.cancel_scan();
+        }
+        let count = queue.len();
+        self.scan = None;
+        self.pending_paths.clear();
+        self.source = None;
+        self.texture = None;
+        self.awaited = None;
+        self.capture_plan = None;
+        self.source_field.set_committed(None);
+        self.queue = Some(queue);
+        self.request_current();
+        self.notify(format!("{count} dropped images"));
+    }
+
     pub(super) fn forget_recent_source(&mut self, path: &Path) {
         self.config.remove_recent_source(path);
         self.recent_existence.forget(path);

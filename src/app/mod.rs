@@ -1,6 +1,7 @@
 mod capture;
 mod crop_commands;
 mod dialogs;
+mod file_drop;
 mod format_bar;
 mod interaction;
 mod output_actions;
@@ -213,6 +214,7 @@ impl eframe::App for CropDeckApp {
         self.toolbar(ui);
         self.status_bar(ui);
         self.workspace(ui);
+        self.file_drop(&context);
         if self.settings_open {
             self.settings_dialog(&context);
         }

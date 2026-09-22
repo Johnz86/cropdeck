@@ -13,7 +13,8 @@ each code change, and git history is the only record of what changed when.
 
 The native entry point is src/main.rs. The application lives in the src/app/ module directory:
 mod.rs owns CropDeckApp, its construction, and the eframe App implementation; sources.rs opens
-images and folders, installs queues, and drives the loader; crop_commands.rs maps ratio, move,
+images and folders, installs queues, and drives the loader; file_drop.rs classifies hovered and
+dropped paths and paints the drop overlay; crop_commands.rs maps ratio, move,
 resize, and snap commands onto crop geometry and resolves catalog sizes; capture.rs submits
 exports and polls their results; output_actions.rs copies the crop to the clipboard and reveals
 the last export; shortcuts.rs routes keyboard input; panels.rs draws the toolbar,

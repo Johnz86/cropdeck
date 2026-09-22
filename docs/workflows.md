@@ -40,6 +40,12 @@ under way. The image on screen never changes position in the process; only the r
 does. A marker beside the count shows a scan is still running, and opening a different source
 abandons it.
 
+One image, several images, or one folder can also be dropped onto the window. While the pointer
+carries them, the canvas dims and names what the drop will open, so a mistaken drag can be carried
+back out. A single dropped item is scanned exactly as a dialog choice is, and several dropped
+images become one naturally sorted queue without scanning their folder. A drop that mixes images
+with anything else is refused by name and changes nothing.
+
 A source can be typed or pasted instead of chosen through a dialog, from the field on the empty
 workspace or the Source row in Settings. Paths wrapped in quotes or prefixed with ~ are accepted.
 A path that does not exist, or a file that is not a supported image, is reported under the field
@@ -118,6 +124,7 @@ is retained by itself so the active source remains reusable.
 | Ctrl + scroll | Zoom the viewport |
 | Home / End | Move to the top / bottom of the image |
 | Pointer drag inside crop | Move the crop and auto scroll near viewport edges |
+| Drop files on the window | Open one image, several images, or one folder |
 | Space + pointer drag or middle drag | Pan the document |
 | Ctrl + C | Copy the current crop to the system clipboard |
 | Ctrl + Shift + R | Reveal the last export in the file manager |

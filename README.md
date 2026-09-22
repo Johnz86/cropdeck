@@ -10,6 +10,7 @@ CropDeck is a desktop application for crop extraction. It keeps crop geometry in
 - Native resolution display that scales down only when the source exceeds the available width.
 - Keyboard and pointer workflows with edge scrolling, viewport zoom, and magnetic size snapping.
 - Naturally sorted image queues, recursive folder scanning, recent sources, crop history, and capture-and-advance.
+- Drag and drop of one image, several images, or one folder, with the pending source named before the drop lands.
 - Docked format bar with numbered ratio chips and a size rail that never interrupts the canvas.
 - Background image loading with neighbor prefetch and a configurable decoded-source cache.
 - Visible-tile GPU residency with bounded per-frame uploads and distant-tile release.
