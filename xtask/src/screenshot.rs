@@ -154,8 +154,9 @@ pub fn rgb_image(
         return Err(CaptureRefusal::UnsupportedDepth { depth });
     }
     let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
-    for pixel in pixels[..expected].chunks_exact(4) {
-        rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+    let (bgrx_pixels, _remainder) = pixels[..expected].as_chunks::<4>();
+    for [blue, green, red, _padding] in bgrx_pixels {
+        rgb.extend_from_slice(&[*red, *green, *blue]);
     }
     RgbImage::from_raw(width, height, rgb).ok_or(CaptureRefusal::UnsupportedDepth { depth })
 }
