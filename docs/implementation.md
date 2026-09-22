@@ -20,12 +20,12 @@ development without slowing incremental compilation of application code.
 | `eframe` | Native egui shell; use `glow`, X11, and Wayland instead of `wgpu` |
 | `image` | JPEG and PNG decoding and encoding only; its WebP decoder is disabled and `image-webp` must stay absent from the resolved graph |
 | `webp` | libwebp-based WebP decode and lossy encode; optional `image` integration stays disabled |
-| `rfd` | Native dialogs; use the XDG portal backend on Linux |
+| `rfd` | Native dialogs; use the XDG portal backend on Linux. It resolves with `pollster` and no DBus client of its own, so its synchronous API is a blocking wrapper over the async one and an executor would buy nothing; dialogs run on detached threads instead |
 | `serde`, `serde_json` | Typed JSON settings |
 | `thiserror`, `anyhow` | Library and application error context |
 | `directories` | Platform correct settings location; it resolves the roaming folder through the platform API, so an `APPDATA` environment override does not redirect it |
 | `natord` | Natural file ordering with a small focused implementation |
-| `crossbeam-channel` | Background decode workers and the bounded export queue |
+| `crossbeam-channel` | Background decode, scan, probe, and export workers |
 | `chrono` | Local date token with minimal clock/std features |
 | `tempfile` | Filesystem tests; development dependency only |
 
@@ -34,9 +34,56 @@ development without slowing incremental compilation of application code.
 - Sources decode fully into CPU memory, but the GPU only ever holds tiles no taller than 2,048
   rows near the viewport. This avoids maximum texture height failures for very tall sources and
   keeps GPU memory independent of source height.
-- Export jobs own an immutable image reference and run on a bounded background worker so
-  encoding cannot stall input handling.
-- Existing files are never silently overwritten; name resolution increments the requested index.
+- Export jobs own an immutable image reference and run on a single unbounded background worker so
+  encoding cannot stall input handling and a capture can never be rejected. A bounded queue was
+  tried first and discarded the crop, its history entry, and the advance together when it filled.
+  It also bounded the wrong quantity: every job from one page clones the same reference counted
+  source, so job count and pinned bytes are unrelated.
+- Existing files are never silently overwritten. Name resolution increments the requested index and
+  must stay on the UI thread, because the capture needs that index in the same frame for the
+  history label and the status message. The atomic create-new open is the actual overwrite guard,
+  covering the window between resolution and writing that the probe cannot see.
+
+### Filesystem access
+
+No filesystem call may block a frame. Scanning, probing, and native dialogs therefore live behind
+a service with two persistent workers and a detached thread per dialog.
+
+Scans and probes get separate threads rather than one worker behind a job enum, because their
+latencies are unrelated and unbounded in both directions: a recursive walk of a large tree would
+delay an existence probe, and a probe against an unreachable network mount would delay a scan. A
+shared pool has the same defect, and a fairness scheduler is more code than a second thread parked
+on a channel. They are kept out of the decode pool for the same reason, since a worker walking a
+directory is a worker not decoding.
+
+Scanning streams rather than completing before the first image appears. The walk is breadth first
+and sorts each directory before emitting it, which the previous stack-based walk did not need
+because the whole list was sorted once at the end. Streaming makes emission order visible, and
+depth-first order with unspecified directory listing would surface pages out of order.
+
+Batches merge into the queue in linear time rather than re-sorting it, and the merge shifts the
+current index so the image on screen never moves while the queue grows underneath the user. Only
+the reported position changes. A queue is never constructed empty, because the current path is
+indexed directly.
+
+Cancellation is a generation counter. A new selection advances it, the walk observes the change at
+its next batch and abandons, and any event already queued is discarded by the same check on the UI
+side. Both halves are needed; neither alone is sufficient.
+
+A probe reports existence and directory-ness from one metadata call, because the path fields need
+both and probing twice would be wasteful. Any error other than a missing entry reports the path as
+present, since a permission failure on a parent is not evidence that the entry is gone and
+offering to forget a temporarily unreachable source is destructive.
+
+Path input is validated on the probe worker after a debounce, and a result is applied only while it
+still matches the draft, which makes a stale probe from an earlier keystroke harmless. A
+destination that does not yet exist is accepted rather than rejected, because it is created on
+first capture; only an existing file at that path, a missing parent, or a relative path is refused.
+
+The capture path caches its prepared destination and parsed filename template behind a
+configuration revision counter, so directory creation and template parsing happen once per settings
+and source pair instead of on every keypress. `AppConfig` compares persisted fields only, because
+the counter is in-memory bookkeeping and would otherwise make identical settings compare unequal.
 
 ### Image load path
 

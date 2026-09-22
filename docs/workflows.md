@@ -34,6 +34,17 @@ Source pixel coordinates, deterministic naming templates, and non overwriting ou
 
 Folder queues use natural filename ordering and can include nested folders when recursive scanning is enabled. Queue navigation appears only when more than one image is loaded. The File menu and the empty workspace both list the ten most recently opened images and folders; entries that no longer exist are marked and can be removed by clicking them.
 
+Scanning a folder does not block the window. The first image opens as soon as it is found and the
+rest of the folder keeps loading behind it, so the queue total climbs while cropping is already
+under way. The image on screen never changes position in the process; only the reported count
+does. A marker beside the count shows a scan is still running, and opening a different source
+abandons it.
+
+A source can be typed or pasted instead of chosen through a dialog, from the field on the empty
+workspace or the Source row in Settings. Paths wrapped in quotes or prefixed with ~ are accepted.
+A path that does not exist, or a file that is not a supported image, is reported under the field
+and nothing is opened.
+
 Image decoding runs in the background. The displayed image stays available for dragging,
 scrolling, and capture while another source loads. CropDeck prefetches the next image and then the
 previous image, and keeps recently decoded sources in a least-recently-used cache so reversing
@@ -65,6 +76,17 @@ A nominal 2:3 XS preset is 344 by 512 pixels rather than recomputing an unaligne
 The format picker shows every catalog ratio in portrait, landscape, and square groups. Size tiers run from XS through XXL, and Max selects the largest ratio locked crop that fits the current source. Oversized tiers remain visible but disabled.
 
 Changing ratios retains an explicitly selected tier when it fits. If it does not fit, CropDeck uses the largest available tier without forgetting the preference. Magnetic resizing moves continuously, pulls the crop toward nearby catalog sizes, and requires deliberate movement to leave a snapped size.
+
+## Export destination
+
+By default each crop is written beside its source image. The Destination row in Settings accepts a
+typed or pasted folder path, a folder chosen through the dialog, or Use source folder to return to
+the default. A destination that does not exist yet is accepted and created with the first capture.
+An existing file at that path, a missing parent folder, or a relative path is refused and reported
+under the field, leaving the previous destination in place.
+
+Validation runs in the background, so a path on a slow or unreachable network mount leaves that one
+field waiting while the rest of the dialog stays usable.
 
 ## Performance settings
 
